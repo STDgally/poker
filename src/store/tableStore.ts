@@ -9,6 +9,7 @@ import { BotProfileConfig } from '@/lib/bots/types';
 import { TAG_PROFILE, CALLING_STATION_PROFILE } from '@/lib/bots/profiles';
 import { CreateSessionPayload, CreateSessionResponse, HandActionPayload, RecordHandPayload } from '@/lib/hands/types';
 import { playCheckSound, playChipSound, playFoldSound, playRaiseSound, playWinSound, playYourTurnSound } from '@/lib/sound/sounds';
+import { useSettingsStore } from '@/store/settingsStore';
 
 export const HERO_ID = 'hero';
 const STARTING_STACK = 1000;
@@ -16,12 +17,14 @@ const SMALL_BLIND = 5;
 const BIG_BLIND = 10;
 /** Bots "think" for a randomized delay before acting instead of responding
  * instantly — folds are quick, bets/raises take noticeably longer, mimicking
- * how a real opponent would pause more before a bigger decision. */
+ * how a real opponent would pause more before a bigger decision. Scaled
+ * around the user's configured bot-speed setting (Impostazioni). */
 function getBotThinkDelayMs(action: PlayerAction): number {
-  const base = 700 + Math.random() * 900;
+  const settingBase = useSettingsStore.getState().botDelayMs;
+  const base = settingBase * (0.7 + Math.random() * 0.9);
   if (action.type === PlayerActionType.FOLD) return base * 0.6;
   if (action.type === PlayerActionType.BET || action.type === PlayerActionType.RAISE || action.type === PlayerActionType.ALL_IN) {
-    return base + 400 + Math.random() * 600;
+    return base + settingBase * 0.4 + Math.random() * settingBase * 0.6;
   }
   return base;
 }

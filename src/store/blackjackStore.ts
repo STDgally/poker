@@ -13,9 +13,7 @@ import {
   CreateBlackjackSessionResponse,
   RecordBlackjackRoundPayload,
 } from '@/lib/blackjack/persistenceTypes';
-
-const BOT_THINK_MIN_MS = 500;
-const BOT_THINK_MAX_MS = 1400;
+import { useSettingsStore } from '@/store/settingsStore';
 
 function snapshot(engine: BlackjackEngine): BlackjackGameState {
   const s = engine.getState();
@@ -65,8 +63,10 @@ function playActionSound(action: BoxAction) {
   }
 }
 
+/** Scaled around the user's configured bot-speed setting (Impostazioni), shared with poker. */
 function randomThinkDelay(): number {
-  return BOT_THINK_MIN_MS + Math.random() * (BOT_THINK_MAX_MS - BOT_THINK_MIN_MS);
+  const settingBase = useSettingsStore.getState().botDelayMs;
+  return settingBase * (0.5 + Math.random());
 }
 
 interface BlackjackStore {

@@ -1,6 +1,6 @@
 'use client';
 
-import { FELT_COLOR_PRESETS, UI_SCALE_PRESETS, useSettingsStore } from '@/store/settingsStore';
+import { BOT_DELAY_PRESETS, FELT_COLOR_PRESETS, UI_SCALE_PRESETS, useSettingsStore } from '@/store/settingsStore';
 import { NavBar } from '@/components/NavBar';
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -29,6 +29,7 @@ export default function SettingsPage() {
   const uiScale = useSettingsStore((s) => s.uiScale);
   const highContrast = useSettingsStore((s) => s.highContrast);
   const keyboardShortcutsEnabled = useSettingsStore((s) => s.keyboardShortcutsEnabled);
+  const botDelayMs = useSettingsStore((s) => s.botDelayMs);
   const blackjackRules = useSettingsStore((s) => s.blackjackRules);
   const toggleSound = useSettingsStore((s) => s.toggleSound);
   const setBetDisplayUnit = useSettingsStore((s) => s.setBetDisplayUnit);
@@ -37,6 +38,7 @@ export default function SettingsPage() {
   const setUiScale = useSettingsStore((s) => s.setUiScale);
   const toggleHighContrast = useSettingsStore((s) => s.toggleHighContrast);
   const toggleKeyboardShortcuts = useSettingsStore((s) => s.toggleKeyboardShortcuts);
+  const setBotDelayMs = useSettingsStore((s) => s.setBotDelayMs);
   const setBlackjackRule = useSettingsStore((s) => s.setBlackjackRule);
 
   return (
@@ -90,6 +92,25 @@ export default function SettingsPage() {
             >
               <span className="h-8 w-8 rounded-full border border-black/30" style={{ backgroundColor: preset.value }} />
               <span className="text-[10px] text-slate-400">{preset.label}</span>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Velocità dei bot">
+        <div className="mb-2 text-sm text-slate-300">
+          Tempo di &quot;pensiero&quot; dei bot prima di agire — vale sia per il poker che per il blackjack.
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {BOT_DELAY_PRESETS.map((preset) => (
+            <button
+              key={preset.key}
+              onClick={() => setBotDelayMs(preset.value)}
+              className={`rounded-md border px-2 py-2 text-center text-xs font-semibold transition ${
+                botDelayMs === preset.value ? 'border-amber-400 bg-amber-500/20 text-amber-300' : 'border-slate-700 text-slate-300 hover:border-slate-500'
+              }`}
+            >
+              {preset.label}
             </button>
           ))}
         </div>

@@ -459,3 +459,38 @@ corretto ("Re di cuori") via query sull'albero di accessibilità della pagina.
 Con lo Step B6 si chiude l'intera roadmap Blackjack (B1-B6): motore di gioco, strategia base,
 tavolo multi-postazione/multi-box, statistiche persistite, trainer per il conteggio delle carte,
 regole configurabili e accessibilità — accanto al simulatore di Poker (Step 1-4) già completo.
+
+## Fix e rifiniture successive
+
+**Bug fix — `prisma.blackjackRound` undefined**: se dopo un `git pull` la dashboard dava
+"Cannot read properties of undefined (reading 'findMany')", la causa era un client Prisma
+generato prima che lo schema includesse i modelli Blackjack. Risolto alla radice aggiungendo
+`"postinstall": "prisma generate"` a `package.json`, così `npm install` rigenera sempre il client
+in base allo schema corrente. Se l'errore si è già presentato, basta eseguire una volta
+`npx prisma generate` (o `npm run prisma:generate`).
+
+**Velocità dei bot come impostazione**: `/settings` → "Velocità dei bot" — un unico valore
+condiviso da poker e blackjack (`botDelayMs` in `useSettingsStore`), attorno al quale ciascun
+motore scala la propria formula di delay casuale esistente, così i bot restano "vivi" (fold
+rapidi, raddoppi più lenti) a qualunque velocità scelta.
+
+**Pannello info anche per il blackjack**: come quello del poker (finestra grande fissa a
+sinistra, aperta dal pulsante "i"), con `src/lib/blackjack/oddsCalculator.ts` che calcola: la
+probabilità di sballare se chiedi carta (percentuale reale sulle carte non ancora viste), e
+l'esito se stai adesso (vittoria/pareggio/sconfitta) via simulazione Monte Carlo del banco — la
+carta coperta del banco non viene mai letta direttamente dallo stato del motore, viene
+ricampionata insieme al resto delle carte sconosciute, per restare un'analisi onesta dal punto di
+vista del giocatore e non un dato ottenuto "sbirciando". Verificato: per una mano da 18 il rischio
+di sballo calcolato (76,6%) combacia con quello teorico (~76,9%, dato che solo Asso/2/3 non fanno
+sballare un 18).
+
+**Tavolo blackjack in stile casinò reale**: il feltro non è più un rettangolo arrotondato ma una
+forma a ventaglio (bordo curvo in basso, dritto in alto dove sta il banco, via un trucco CSS su
+`border-radius`), le 6 postazioni sono disposte lungo la curva invece che su una griglia, le
+puntate sono gettoni circolari (`ChipToken`) invece di testo semplice, e il feltro mostra
+"BLACKJACK PAGA 3 A 2" (o "6 A 5") più la regola del banco sul 17, dinamici in base alle regole
+configurate. A fine mano appare un banner "ATTENDI LA PROSSIMA MANO" in stile casinò.
+
+Verificato in browser: layout a ventaglio corretto con le 6 postazioni (incluse quelle vuote)
+ben distribuite lungo la curva senza sovrapposizioni, gettoni e testo del banco resi
+correttamente, banner di fine mano visibile con la mano del banco rivelata sotto.

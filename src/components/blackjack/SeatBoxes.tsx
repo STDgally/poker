@@ -2,6 +2,7 @@ import { computeHandValue } from '@/lib/blackjack/handValue';
 import { BoxState, SeatState } from '@/lib/blackjack/types';
 import { formatChips } from '@/lib/format';
 import { PlayingCard } from '@/components/table/PlayingCard';
+import { ChipToken } from './ChipToken';
 
 const RESULT_LABELS: Record<NonNullable<BoxState['result']>, string> = {
   WIN: 'Vinta',
@@ -35,7 +36,7 @@ function BoxCard({ box, isActive }: { box: BoxState; isActive: boolean }) {
         {value.total}
         {value.isSoft && !value.isBust ? ' (soft)' : ''}
       </div>
-      <div className="text-[10px] text-slate-500">Puntata {formatChips(box.bet)}</div>
+      <ChipToken amount={box.bet} small />
       {box.insuranceBet > 0 && <div className="text-[10px] text-sky-400">Ass. {formatChips(box.insuranceBet)}</div>}
       {box.result && (
         <div className={`text-[10px] font-semibold ${resultColor}`}>

@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { describeRecommendation, getBasicStrategyAction } from '@/lib/blackjack/basicStrategy';
 import { computeHandValue } from '@/lib/blackjack/handValue';
 import { BlackjackPhase, BoxAction } from '@/lib/blackjack/types';
+import { InfoPanel } from './InfoPanel';
 
 const ACTION_LABELS: Record<BoxAction, string> = {
   HIT: 'Carta',
@@ -78,6 +79,9 @@ export function ActionPanel() {
   if (gameState.phase === BlackjackPhase.INSURANCE) {
     return (
       <div className="flex w-full max-w-md flex-col gap-3 rounded-lg border border-sky-700 bg-slate-900/90 p-4 text-center">
+        <div className="flex items-center justify-end">
+          <InfoPanel />
+        </div>
         <div className="text-sm text-slate-200">
           Il banco mostra un Asso. Vuoi assicurarti per {Math.floor(box.bet / 2)} chips? ({seat.name}, box {box.boxIndex + 1})
         </div>
@@ -107,8 +111,15 @@ export function ActionPanel() {
 
   return (
     <div className="flex w-full max-w-md flex-col gap-3 rounded-lg border border-slate-700 bg-slate-900/90 p-4">
+      <div className="flex items-center justify-between">
+        <span className="text-xs uppercase tracking-wide text-slate-500">
+          {seat.name} — box {box.boxIndex + 1}
+        </span>
+        <InfoPanel />
+      </div>
+
       <div className="text-center text-sm text-slate-300">
-        {seat.name} — box {box.boxIndex + 1} — totale {value.total}
+        Totale {value.total}
         {value.isSoft ? ' (soft)' : ''}
       </div>
 

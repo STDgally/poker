@@ -10,6 +10,17 @@ import { SeatBoxes } from './SeatBoxes';
 import { BettingControls } from './BettingControls';
 import { ActionPanel } from './ActionPanel';
 
+// Six seats arranged along the felt's curved bottom rail, like a real casino
+// blackjack table fanned out below the dealer.
+const SEAT_ARC_POSITIONS = [
+  { top: '82%', left: '6%' },
+  { top: '70%', left: '22%' },
+  { top: '63%', left: '38%' },
+  { top: '63%', left: '62%' },
+  { top: '70%', left: '78%' },
+  { top: '82%', left: '94%' },
+];
+
 export function BlackjackTable() {
   const gameState = useBlackjackStore((s) => s.gameState);
   const resetTable = useBlackjackStore((s) => s.resetTable);
@@ -26,16 +37,38 @@ export function BlackjackTable() {
       ) : (
         <>
           <div
-            className="flex w-full max-w-4xl flex-col items-center gap-8 rounded-3xl border-8 border-black/40 p-8 shadow-2xl"
-            style={{ backgroundColor: feltColor }}
+            className="relative aspect-[16/11] w-full max-w-4xl border-8 border-black/40 shadow-2xl"
+            style={{ backgroundColor: feltColor, borderRadius: '4% 4% 50% 50% / 4% 4% 100% 100%' }}
           >
-            <DealerHand dealer={gameState.dealer} />
-
-            <div className="grid w-full grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-6">
-              {gameState.seats.map((seat) => (
-                <SeatBoxes key={seat.seat} seat={seat} activeBoxId={gameState.activeBoxId} />
-              ))}
+            <div className="absolute left-1/2 top-[6%] -translate-x-1/2">
+              <DealerHand dealer={gameState.dealer} />
             </div>
+
+            <div className="absolute left-1/2 top-[40%] w-full -translate-x-1/2 -translate-y-1/2 px-4 text-center">
+              <div className="text-base font-bold tracking-wide text-amber-300/80 sm:text-lg">
+                BLACKJACK PAGA {gameState.rules.blackjackPayout === 1.5 ? '3 A 2' : '6 A 5'}
+              </div>
+              <div className="text-[10px] text-amber-100/50 sm:text-xs">
+                Il banco {gameState.rules.dealerHitsSoft17 ? 'pesca sul 17 morbido' : 'sta sempre su 17'}
+              </div>
+            </div>
+
+            {gameState.seats.map((seat) => {
+              const pos = SEAT_ARC_POSITIONS[seat.seat] ?? SEAT_ARC_POSITIONS[0];
+              return (
+                <div key={seat.seat} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ top: pos.top, left: pos.left }}>
+                  <SeatBoxes seat={seat} activeBoxId={gameState.activeBoxId} />
+                </div>
+              );
+            })}
+
+            {gameState.phase === BlackjackPhase.ROUND_COMPLETE && (
+              <div className="absolute inset-0 flex items-start justify-center pt-4">
+                <div className="rounded-md bg-black/70 px-4 py-2 text-center text-sm font-bold uppercase tracking-widest text-white shadow-lg">
+                  Attendi la prossima mano
+                </div>
+              </div>
+            )}
           </div>
 
           {gameState.phase === BlackjackPhase.BETTING && <BettingControls />}

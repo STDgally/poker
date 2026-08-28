@@ -19,6 +19,16 @@ export const UI_SCALE_PRESETS = [
   { key: 'xlarge', label: 'Molto grande', value: 1.3 },
 ] as const;
 
+/** Base "thinking" delay for bots, shared by poker and blackjack — each game
+ * scales its own randomized range proportionally around this base value. */
+export const BOT_DELAY_PRESETS = [
+  { key: 'instant', label: 'Istantaneo', value: 150 },
+  { key: 'fast', label: 'Veloce', value: 600 },
+  { key: 'normal', label: 'Normale', value: 1000 },
+  { key: 'slow', label: 'Lento', value: 1800 },
+  { key: 'veryslow', label: 'Molto lento', value: 3000 },
+] as const;
+
 export interface BlackjackRuleSettings {
   numDecks: number;
   dealerHitsSoft17: boolean;
@@ -47,6 +57,7 @@ interface SettingsState {
   uiScale: number;
   highContrast: boolean;
   keyboardShortcutsEnabled: boolean;
+  botDelayMs: number;
   blackjackRules: BlackjackRuleSettings;
 
   toggleSound: () => void;
@@ -56,6 +67,7 @@ interface SettingsState {
   setUiScale: (scale: number) => void;
   toggleHighContrast: () => void;
   toggleKeyboardShortcuts: () => void;
+  setBotDelayMs: (ms: number) => void;
   setBlackjackRule: <K extends keyof BlackjackRuleSettings>(key: K, value: BlackjackRuleSettings[K]) => void;
 }
 
@@ -74,6 +86,7 @@ export const useSettingsStore = create<SettingsState>()(
       uiScale: 1,
       highContrast: false,
       keyboardShortcutsEnabled: true,
+      botDelayMs: 1000,
       blackjackRules: DEFAULT_BLACKJACK_RULE_SETTINGS,
 
       toggleSound: () => set((s) => ({ soundEnabled: !s.soundEnabled })),
@@ -83,6 +96,7 @@ export const useSettingsStore = create<SettingsState>()(
       setUiScale: (scale) => set({ uiScale: scale }),
       toggleHighContrast: () => set((s) => ({ highContrast: !s.highContrast })),
       toggleKeyboardShortcuts: () => set((s) => ({ keyboardShortcutsEnabled: !s.keyboardShortcutsEnabled })),
+      setBotDelayMs: (ms) => set({ botDelayMs: ms }),
       setBlackjackRule: (key, value) => set((s) => ({ blackjackRules: { ...s.blackjackRules, [key]: value } })),
     }),
     { name: 'poker-settings', skipHydration: true },
