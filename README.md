@@ -9,7 +9,8 @@ Prisma + MySQL (persistenza), `pokersolver` (valutazione mani).
 
 - **STEP 1 (completato):** schema Prisma (`User`, `Session`, `HandHistory`, `ActionLog`) e classe
   `GameEngine` (mazzo, blind, turni di puntata, side pot, showdown).
-- STEP 2: profili bot (TAG, Calling Station) — da fare.
+- **STEP 2 (completato):** profili bot TAG / Calling Station e logica di decisione basata su
+  equity (Monte Carlo).
 - STEP 3: componente React del tavolo — da fare.
 - STEP 4: dashboard `/dashboard` con grafici — da fare.
 
@@ -95,6 +96,12 @@ src/
       deck.ts               # creazione/shuffle del mazzo
       handEvaluator.ts   # wrapper tipizzato su pokersolver
       GameEngine.ts       # motore di gioco: blind, turni, pot, showdown
+    bots/
+      types.ts               # BotProfileConfig, BotProfileType
+      profiles.ts             # profili TAG_PROFILE e CALLING_STATION_PROFILE
+      equity.ts                # stima equity via simulazione Monte Carlo
+      botPolicy.ts             # decideBotAction(): sceglie fold/check/call/bet/raise
+      runBot.ts                 # playBotAction(engine, playerId, profile): integra con GameEngine
   types/
     pokersolver.d.ts     # dichiarazione di tipo per pokersolver (non tipizzato upstream)
   app/
@@ -125,3 +132,31 @@ engine.applyAction('hero', { type: PlayerActionType.CALL });
 Il motore gestisce automaticamente: rotazione del bottone, regola heads-up (dealer = SB),
 apertura/chiusura dei giri di puntata, calcolo dei side pot in caso di all-in multipli, e
 valutazione dello showdown tramite `pokersolver`.
+
+### Bot: uso di base
+
+```ts
+import { playBotAction } from '@/lib/bots/runBot';
+import { TAG_PROFILE, CALLING_STATION_PROFILE } from '@/lib/bots/profiles';
+
+// Quando è il turno del bot 'bot1' (verificabile con engine.getState().actionOnSeat):
+playBotAction(engine, 'bot1', TAG_PROFILE);
+```
+
+`playBotAction` legge stato e azioni legali dall'engine, decide un'azione tramite
+`decideBotAction()` e la applica con `engine.applyAction()`.
+
+**Come decide un bot:** ad ogni turno stima la propria *equity* (probabilità di vincere lo
+showdown) con una simulazione Monte Carlo che pesca carte casuali per gli avversari e per il
+board mancante (`estimateEquity`, in `equity.ts`) — non "vede" mai le carte reali degli
+avversari. L'equity viene confrontata con le soglie del profilo (`BotProfileConfig`) per
+decidere fold/check/call/bet/raise e la dimensione della puntata (frazione del pot).
+
+- **TAG (Tight-Aggressive):** entra in mano solo con equity preflop ≥ 0.40 (~15-20% VPIP),
+  preferisce rilanciare a chiamare quando è forte, bluffa occasionalmente.
+- **Calling Station:** entra in mano con equity preflop ≥ 0.22 (~55-60% VPIP), chiama quasi
+  tutto (soglia di call molto bassa), rilancia raramente e non bluffa mai.
+
+Verificato con simulazioni di centinaia di mani complete (4 bot, fold/call/raise/all-in,
+side pot multipli): nessun errore, conservazione delle chips corretta, e i due profili
+mostrano VPIP nettamente diversi come atteso dall'archetipo.
