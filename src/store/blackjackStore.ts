@@ -3,8 +3,16 @@
 import { create } from 'zustand';
 import { BlackjackEngine } from '@/lib/blackjack/BlackjackEngine';
 import { getBasicStrategyAction, shouldTakeInsurance } from '@/lib/blackjack/basicStrategy';
+import { computeHandValue } from '@/lib/blackjack/handValue';
 import { BetInput, BlackjackGameState, BlackjackPhase, BoxAction, SeatConfig } from '@/lib/blackjack/types';
 import { playCheckSound, playChipSound, playFoldSound, playRaiseSound, playWinSound, playYourTurnSound } from '@/lib/sound/sounds';
+import {
+  BlackjackActionLogPayload,
+  BlackjackBoxResultPayload,
+  CreateBlackjackSessionPayload,
+  CreateBlackjackSessionResponse,
+  RecordBlackjackRoundPayload,
+} from '@/lib/blackjack/persistenceTypes';
 
 const BOT_THINK_MIN_MS = 500;
 const BOT_THINK_MAX_MS = 1400;
@@ -78,6 +86,14 @@ interface BlackjackStore {
 }
 
 export const useBlackjackStore = create<BlackjackStore>((set, get) => {
+  // Per-round bookkeeping for hand-history persistence. Plain closured state
+  // (not part of the reactive store) since the UI never needs to render it directly.
+  let sessionId: string | null = null;
+  let sessionCreationPromise: Promise<string | null> | null = null;
+  let currentRoundActions: BlackjackActionLogPayload[] = [];
+  let actionSequence = 0;
+  let roundPersisted = false;
+
   function pushLog(message: string) {
     set((state) => ({ log: [message, ...state.log].slice(0, 40) }));
   }
@@ -92,6 +108,90 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
     return state?.seats.find((s) => s.seat === boxSeat)?.occupant === 'HERO';
   }
 
+  async function ensureSession(): Promise<string | null> {
+    const engine = get().engine;
+    if (!engine) return null;
+    if (sessionId) return sessionId;
+    if (!sessionCreationPromise) {
+      const rules = engine.getState().rules;
+      const payload: CreateBlackjackSessionPayload = {
+        numDecks: rules.numDecks,
+        dealerHitsSoft17: rules.dealerHitsSoft17,
+        blackjackPayout: rules.blackjackPayout,
+        minBet: rules.minBet,
+        maxBet: rules.maxBet,
+        startStack: engine.getState().seats.find((s) => s.occupant === 'HERO')?.bankroll ?? 0,
+      };
+      sessionCreationPromise = fetch('/api/blackjack/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => (res.ok ? (res.json() as Promise<CreateBlackjackSessionResponse>) : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((data) => {
+          sessionId = data.sessionId;
+          return sessionId;
+        })
+        .catch((err) => {
+          console.error('Impossibile creare la sessione blackjack per il tracking:', err);
+          sessionCreationPromise = null;
+          return null;
+        });
+    }
+    return sessionCreationPromise;
+  }
+
+  async function persistRound() {
+    const engine = get().engine;
+    if (!engine) return;
+    const sid = await ensureSession();
+    if (!sid) return; // tracking is best-effort; gameplay must never depend on it
+
+    const state = engine.getState();
+    const boxes: BlackjackBoxResultPayload[] = [];
+    for (const seat of state.seats) {
+      for (const box of seat.boxes) {
+        boxes.push({
+          isHero: seat.occupant === 'HERO',
+          actorName: seat.name,
+          seat: seat.seat,
+          boxIndex: box.boxIndex,
+          cards: box.cards,
+          finalTotal: computeHandValue(box.cards).total,
+          bet: box.bet,
+          insuranceBet: box.insuranceBet,
+          isDoubled: box.isDoubled,
+          isFromSplit: box.isFromSplit,
+          isBlackjack: box.isBlackjack,
+          isBust: box.isBust,
+          isSurrendered: box.isSurrendered,
+          result: box.result ?? 'PUSH',
+          payout: box.payout,
+        });
+      }
+    }
+
+    const payload: RecordBlackjackRoundPayload = {
+      sessionId: sid,
+      roundNumber: state.roundNumber,
+      dealerCards: state.dealer.cards,
+      dealerTotal: computeHandValue(state.dealer.cards).total,
+      boxes,
+      actions: currentRoundActions,
+    };
+
+    try {
+      const res = await fetch('/api/blackjack/rounds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      console.error('Impossibile salvare la mano di blackjack:', err);
+    }
+  }
+
   /** Drives every bot decision (insurance + play) automatically, with a
    * short "thinking" delay, until it's the human's turn or the round ends. */
   function advanceBots() {
@@ -103,6 +203,10 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
       syncState();
       const heroWon = state.seats.some((s) => s.occupant === 'HERO' && s.boxes.some((b) => b.payout > 0));
       if (heroWon) playWinSound();
+      if (!roundPersisted) {
+        roundPersisted = true;
+        void persistRound();
+      }
       return;
     }
 
@@ -171,10 +275,14 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
           pendingBets[`${seat.seat}-${i}`] = state.rules.minBet;
         }
       }
+      sessionId = null;
+      sessionCreationPromise = null;
       set({ engine, gameState: snapshot(engine), pendingBets, log: [], isBotThinking: false });
     },
 
     resetTable: () => {
+      sessionId = null;
+      sessionCreationPromise = null;
       set({ engine: null, gameState: null, pendingBets: {}, log: [], isBotThinking: false });
     },
 
@@ -185,6 +293,7 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
     dealRound: () => {
       const engine = get().engine;
       if (!engine) return;
+      void ensureSession();
       const state = engine.getState();
       const pendingBets = get().pendingBets;
 
@@ -197,6 +306,9 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
       }
 
       engine.startRound(heroBets);
+      currentRoundActions = [];
+      actionSequence = 0;
+      roundPersisted = false;
       pushLog(`--- Mano #${engine.getState().roundNumber} ---`);
       syncState();
       advanceBots();
@@ -205,14 +317,42 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
     humanInsuranceDecision: (boxId, take) => {
       const engine = get().engine;
       if (!engine) return;
+      const before = engine.getState();
+      const box = before.seats.flatMap((s) => s.boxes).find((b) => b.id === boxId)!;
+
+      currentRoundActions.push({
+        seat: box.seat,
+        boxIndex: box.boxIndex,
+        sequence: actionSequence++,
+        action: take ? 'INSURANCE_TAKEN' : 'INSURANCE_DECLINED',
+        handTotalBefore: computeHandValue(box.cards).total,
+        dealerUpCard: before.dealer.cards[0],
+        wasOptimal: take === shouldTakeInsurance(),
+      });
+
       engine.applyInsuranceDecision(boxId, take);
-      pushLog(take ? 'Tu prendi l\'assicurazione' : 'Tu rifiuti l\'assicurazione');
+      pushLog(take ? "Tu prendi l'assicurazione" : "Tu rifiuti l'assicurazione");
       advanceBots();
     },
 
     humanAction: (boxId, action) => {
       const engine = get().engine;
       if (!engine) return;
+      const before = engine.getState();
+      const box = before.seats.flatMap((s) => s.boxes).find((b) => b.id === boxId)!;
+      const legal = engine.getLegalActions(boxId);
+      const rec = legal ? getBasicStrategyAction(box.cards, before.dealer.cards[0], legal.actions) : null;
+
+      currentRoundActions.push({
+        seat: box.seat,
+        boxIndex: box.boxIndex,
+        sequence: actionSequence++,
+        action,
+        handTotalBefore: computeHandValue(box.cards).total,
+        dealerUpCard: before.dealer.cards[0],
+        wasOptimal: rec ? rec.action === action : true,
+      });
+
       engine.applyAction(boxId, action);
       pushLog(describeAction('Tu', action));
       playActionSound(action);

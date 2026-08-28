@@ -294,7 +294,7 @@ Roadmap in step verificabili, come per il poker:
 - **B3 (completato):** tavolo `/blackjack` con 6 postazioni configurabili, multi-box per te
   (anche su più postazioni contemporaneamente), bot, area scommesse, hint di strategia in tempo
   reale.
-- B4: statistiche persistite (aderenza alla strategia, win rate) + dashboard — da fare.
+- **B4 (completato):** statistiche persistite (aderenza alla strategia, win rate) + dashboard.
 - B5: trainer conteggio carte (più sistemi, livelli di difficoltà) — da fare.
 - B6: impostazioni estese (regole banco) + accessibilità (tastiera, screen reader, alto
   contrasto, testo ridimensionabile) — da fare.
@@ -378,3 +378,25 @@ e in una sessione più lunga anche il prompt di assicurazione quando il banco ha
 Questo ha fatto emergere un **bug di layout reale**: un box con molte carte (dopo diversi hit)
 si allargava e si sovrapponeva visivamente al box del vicino nella griglia — corretto facendo
 andare a capo le carte oltre un certo numero invece di farle crescere in orizzontale all'infinito.
+
+### Statistiche & Dashboard Blackjack (Step B4)
+
+Stesso pattern del poker: `POST /api/blackjack/sessions` (creata alla prima mano) e
+`POST /api/blackjack/rounds` (salva `BlackjackRound` + tutti i `BlackjackBoxResult`, hero e bot,
++ `BlackjackActionLog` per ogni decisione dell'eroe con `wasOptimal` calcolato confrontando
+l'azione scelta con `getBasicStrategyAction`/`shouldTakeInsurance` dello Step B2). Salvataggio
+best-effort e asincrono, non blocca mai il gioco.
+
+`getBlackjackStats()` in `src/lib/blackjackAnalytics.ts` aggrega: mani giocate, risultato netto,
+win rate per box, % blackjack naturali, % sballi, e **aderenza alla strategia base** (percentuale
+di decisioni — incluse quelle sull'assicurazione — che hanno coinciso con la mossa consigliata).
+
+`/dashboard` ora ha due tab (Poker / Blackjack), entrambi con lo stesso grafico Recharts del
+bankroll cumulativo e una tabella di riepilogo.
+
+**Verificato end-to-end con un database reale**: mani giocate nel browser con Playwright cliccando
+sempre "Sta" (per generare decisioni deliberatamente sub-ottimali) hanno prodotto un'aderenza
+0%; una seconda sessione seguendo sempre il pulsante evidenziato come consigliato ha portato
+l'aderenza cumulata al 75% — la direzione e l'entità del cambiamento confermano che il tracciamento
+funziona. Controllato anche via query SQL dirette che i singoli `wasOptimal` corrispondessero
+correttamente alla strategia base per la combinazione totale/carta del banco registrata.
