@@ -47,8 +47,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions      Session[]
-  handHistories HandHistory[]
+  sessions          Session[]
+  handHistories     HandHistory[]
+  blackjackSessions BlackjackSession[]
+  blackjackRounds   BlackjackRound[]
 }
 
 /// One sit-down at the table (a cash-game session or a tournament run).
@@ -121,4 +123,116 @@ model ActionLog {
 
   @@index([handHistoryId])
   @@index([handHistoryId, sequence])
+}
+
+// ---------------------------------------------------------------------
+// Blackjack
+// ---------------------------------------------------------------------
+
+enum BlackjackOutcome {
+  WIN
+  LOSE
+  PUSH
+  BLACKJACK
+  SURRENDER
+}
+
+enum BlackjackActionType {
+  HIT
+  STAND
+  DOUBLE
+  SPLIT
+  SURRENDER
+  INSURANCE_TAKEN
+  INSURANCE_DECLINED
+}
+
+/// One sit-down at the Blackjack table: the table rules and starting
+/// bankroll in effect for every round in this session.
+model BlackjackSession {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  numDecks         Int
+  dealerHitsSoft17 Boolean
+  blackjackPayout  Float
+  minBet           Int
+  maxBet           Int
+  startStack       Int
+  endStack         Int?
+  roundsPlayed     Int       @default(0)
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+
+  rounds BlackjackRound[]
+
+  @@index([userId])
+}
+
+/// A single dealt round: the dealer's final hand plus every box played that
+/// round (the hero's boxes across however many seats/boxes they controlled,
+/// and the bots filling the other seats).
+model BlackjackRound {
+  id          String           @id @default(cuid())
+  sessionId   String
+  session     BlackjackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundNumber Int
+  dealerCards String // JSON-encoded array of Card strings
+  dealerTotal Int
+  playedAt    DateTime         @default(now())
+
+  boxes   BlackjackBoxResult[]
+  actions BlackjackActionLog[]
+
+  @@index([sessionId])
+  @@index([userId])
+}
+
+/// One resolved hand (box) within a round. The hero can have several per
+/// round (multiple seats and/or multiple boxes per seat); bot boxes are
+/// stored too so round history is complete, but only isHero=true boxes feed
+/// the hero's own stats.
+model BlackjackBoxResult {
+  id            String           @id @default(cuid())
+  roundId       String
+  round         BlackjackRound   @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  isHero        Boolean
+  actorName     String
+  seat          Int
+  boxIndex      Int
+  cards         String // JSON-encoded array of Card strings (final hand)
+  finalTotal    Int
+  bet           Int
+  insuranceBet  Int              @default(0)
+  isDoubled     Boolean          @default(false)
+  isFromSplit   Boolean          @default(false)
+  isBlackjack   Boolean          @default(false)
+  isBust        Boolean          @default(false)
+  isSurrendered Boolean          @default(false)
+  result        BlackjackOutcome
+  payout        Int
+
+  @@index([roundId])
+}
+
+/// Per-decision log for the hero's own boxes (bots always play optimally, so
+/// they aren't logged here). wasOptimal compares the action taken against
+/// the basic-strategy advisor (Step B2) and powers the "strategy adherence"
+/// stat on the dashboard (Step B4).
+model BlackjackActionLog {
+  id              String              @id @default(cuid())
+  roundId         String
+  round           BlackjackRound      @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  seat            Int
+  boxIndex        Int
+  sequence        Int
+  action          BlackjackActionType
+  handTotalBefore Int
+  dealerUpCard    String
+  wasOptimal      Boolean?
+  createdAt       DateTime            @default(now())
+
+  @@index([roundId])
 }

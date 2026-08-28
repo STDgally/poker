@@ -280,3 +280,45 @@ Verificato in browser con Playwright: carte dell'eroe visibilmente più grandi d
 indicatore "sta pensando" visibile durante il turno di un bot, tempo reale fino al turno
 dell'eroe superiore a 1 secondo (prima era istantaneo), pannello info aperto a sinistra con tutte
 le sezioni popolate correttamente durante una mano reale, zero errori console.
+
+## Blackjack (nuova modalità di gioco)
+
+Roadmap in step verificabili, come per il poker:
+
+- **B1 (completato):** motore `BlackjackEngine` (shoe multi-mazzo, dealing, assicurazione con
+  "peek" per il blackjack del banco, hit/stand/double/split anche multiplo/surrender, regole del
+  banco configurabili) + schema Prisma (`BlackjackSession`, `BlackjackRound`,
+  `BlackjackBoxResult`, `BlackjackActionLog`).
+- B2: motore strategia base (le mosse "da libro") — da fare.
+- B3: tavolo `/blackjack` con 6 postazioni, multi-box, bot, area scommesse — da fare.
+- B4: statistiche persistite (aderenza alla strategia, win rate) + dashboard — da fare.
+- B5: trainer conteggio carte (più sistemi, livelli di difficoltà) — da fare.
+- B6: impostazioni estese (regole banco) + accessibilità (tastiera, screen reader, alto
+  contrasto, testo ridimensionabile) — da fare.
+
+### `BlackjackEngine` (Step B1)
+
+`src/lib/blackjack/`:
+- `types.ts` — modello dati: `SeatState`/`BoxState` (un seat può avere più box, per il multi-box
+  dell'eroe), `BlackjackRules` (mazzi, regole banco, limiti di puntata), fasi (`BETTING` →
+  `INSURANCE` se il banco mostra un Asso → `PLAYER_TURNS` → `DEALER_TURN` → `ROUND_COMPLETE`).
+- `shoe.ts` — shoe multi-mazzo con tracking della penetrazione per il reshuffle.
+- `handValue.ts` — valore della mano (Assi 1/11, bust, soft, blackjack naturale).
+- `BlackjackEngine.ts` — il motore: `startRound()` gestisce puntate, dealing, e il "peek" per il
+  blackjack del banco (se il banco mostra Asso o figura, controlla subito se ha blackjack e
+  risolve la mano immediatamente saltando i turni, come nei casinò veri); `applyAction()` gestisce
+  hit/stand/double/split (con split multipli fino al limite configurato, regola speciale per lo
+  split degli assi)/surrender; `applyInsuranceDecision()` per l'assicurazione.
+
+Il motore non sa nulla di *come* un bot decide (stessa architettura del poker): il chiamante
+(store, Step B3) pilota anche i box dei bot tramite `applyAction()`, usando la strategia base
+dello Step B2.
+
+**Verificato con simulazioni approfondite** (non solo build/typecheck): 3000+ mani con logica
+totale-based su tutti i seat (umano e bot), con controllo di conservazione ad ogni mano (la
+variazione di bankroll di ogni seat deve corrispondere esattamente alla somma dei payout dei suoi
+box) — **ho trovato e corretto un bug reale**: quando l'assicurazione veniva presa ma il banco
+non aveva blackjack, la puntata assicurativa persa non veniva riflessa nel `payout` netto del box
+(solo scalata dal bankroll). Corretto in tutti e 5 i punti dove un payout diventa definitivo.
+Testati anche esplicitamente: split multipli fino al limite configurato, e la regola per cui lo
+split degli assi dà una sola carta aggiuntiva senza ulteriori azioni.
