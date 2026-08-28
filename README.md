@@ -289,7 +289,8 @@ Roadmap in step verificabili, come per il poker:
   "peek" per il blackjack del banco, hit/stand/double/split anche multiplo/surrender, regole del
   banco configurabili) + schema Prisma (`BlackjackSession`, `BlackjackRound`,
   `BlackjackBoxResult`, `BlackjackActionLog`).
-- B2: motore strategia base (le mosse "da libro") — da fare.
+- **B2 (completato):** motore strategia base (le mosse "da libro"), usato sia come hint per te
+  che come cervello dei bot.
 - B3: tavolo `/blackjack` con 6 postazioni, multi-box, bot, area scommesse — da fare.
 - B4: statistiche persistite (aderenza alla strategia, win rate) + dashboard — da fare.
 - B5: trainer conteggio carte (più sistemi, livelli di difficoltà) — da fare.
@@ -322,3 +323,27 @@ non aveva blackjack, la puntata assicurativa persa non veniva riflessa nel `payo
 (solo scalata dal bankroll). Corretto in tutti e 5 i punti dove un payout diventa definitivo.
 Testati anche esplicitamente: split multipli fino al limite configurato, e la regola per cui lo
 split degli assi dà una sola carta aggiuntiva senza ulteriori azioni.
+
+### Strategia base (Step B2)
+
+`src/lib/blackjack/basicStrategy.ts` — tabelle standard pubblicate di strategia base per mazzo
+multiplo con banco che pesca su 17 morbido (le regole di default): totali fissi (9-16), totali
+morbidi (A+2 fino a A+8) e coppie (2,2 fino ad A,A). `getBasicStrategyAction(cards, dealerUpCard,
+legalActions)` restituisce l'azione ottimale **tra quelle effettivamente legali in quel momento**
+(es. se la strategia consiglierebbe di raddoppiare ma non è disponibile, ripiega su hit o stay a
+seconda del caso specifico), più l'azione "ideale" teorica per l'hint UI. `shouldTakeInsurance()`
+restituisce sempre `false` (l'assicurazione è matematicamente sconsigliata senza conteggio carte).
+`describeRecommendation()` genera la spiegazione testuale in italiano per il pannello hint dello
+Step B3.
+
+Questo stesso motore verrà usato sia per il suggerimento "mossa da libro" mostrato all'utente, sia
+come cervello decisionale dei bot (che quindi giocano sempre in modo matematicamente corretto).
+
+**Verificato in due modi**: (1) 20 controlli mirati contro fatti noti di strategia base (8,8 e A,A
+si dividono sempre, 10,10 non si divide mai, 11 raddoppia contro tutto tranne l'Asso con banco che
+pesca su 17 morbido, 16 contro 10 si arrende, ecc.), inclusi i casi di fallback quando
+raddoppio/split/resa non sono legali in quel momento; (2) una simulazione di **300.000 mani**
+usando la strategia reale su tutti i seat (umano e bot), che converge a un vantaggio del banco
+dello **0,255%** — coerente con il valore teorico atteso per queste regole (6 mazzi, H17,
+blackjack 3:2, raddoppio dopo split, resa tardiva), a conferma che il motore si comporta
+matematicamente come un vero tavolo di blackjack.
