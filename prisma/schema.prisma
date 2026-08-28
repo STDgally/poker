@@ -1,0 +1,276 @@
+// Prisma schema for the Poker Simulator & Analytics App
+// Run `npm run prisma:migrate` after configuring DATABASE_URL to create the MySQL schema.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionType {
+  CASH
+  TOURNAMENT
+}
+
+enum Street {
+  PREFLOP
+  FLOP
+  TURN
+  RIVER
+  SHOWDOWN
+}
+
+enum ActorType {
+  HUMAN
+  BOT
+}
+
+enum ActionType {
+  POST_SB
+  POST_BB
+  FOLD
+  CHECK
+  CALL
+  BET
+  RAISE
+  ALL_IN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String?  @unique
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions             Session[]
+  handHistories        HandHistory[]
+  blackjackSessions    BlackjackSession[]
+  blackjackRounds      BlackjackRound[]
+  cardCountingSessions CardCountingSession[]
+}
+
+/// One sit-down at the table (a cash-game session or a tournament run).
+/// Aggregate stats (BB/100, VPIP, PFR) are derived from HandHistory rows
+/// belonging to this session rather than stored redundantly here.
+model Session {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        SessionType @default(CASH)
+  smallBlind  Int // in chips/cents, smallest currency unit
+  bigBlind    Int
+  buyIn       Int
+  startStack  Int
+  endStack    Int?
+  handsPlayed Int         @default(0)
+  startedAt   DateTime    @default(now())
+  endedAt     DateTime?
+
+  handHistories HandHistory[]
+
+  @@index([userId])
+}
+
+/// A single hand played from the hero's point of view, plus enough
+/// context (board, dealer, pot) to reconstruct and review it later.
+model HandHistory {
+  id             String   @id @default(cuid())
+  sessionId      String
+  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  handNumber     Int
+  dealerSeat     Int
+  heroSeat       Int
+  heroPosition   String
+  heroCards      String // JSON-encoded array of Card strings, e.g. ["Ah","Kd"]
+  board          String // JSON-encoded array of Card strings dealt (0-5 cards)
+  potSize        Int
+  heroNetResult  Int // chips won (positive) or lost (negative) by the hero
+  vpip           Boolean  @default(false) // hero voluntarily put chips in preflop
+  pfr            Boolean  @default(false) // hero raised preflop
+  wentToShowdown Boolean  @default(false)
+  wonHand        Boolean  @default(false)
+  playedAt       DateTime @default(now())
+
+  actions ActionLog[]
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([playedAt])
+}
+
+/// Ordered, per-street log of every action taken by every seat during a
+/// hand (both the human hero and the bots). Used to replay a hand and to
+/// compute derived stats such as VPIP/PFR/aggression frequency.
+model ActionLog {
+  id            String      @id @default(cuid())
+  handHistoryId String
+  handHistory   HandHistory @relation(fields: [handHistoryId], references: [id], onDelete: Cascade)
+  street        Street
+  seat          Int
+  actorType     ActorType
+  actorName     String
+  action        ActionType
+  amount        Int         @default(0)
+  potAfter      Int
+  sequence      Int // monotonically increasing order of actions within the hand
+  createdAt     DateTime    @default(now())
+
+  @@index([handHistoryId])
+  @@index([handHistoryId, sequence])
+}
+
+// ---------------------------------------------------------------------
+// Blackjack
+// ---------------------------------------------------------------------
+
+enum BlackjackOutcome {
+  WIN
+  LOSE
+  PUSH
+  BLACKJACK
+  SURRENDER
+}
+
+enum BlackjackActionType {
+  HIT
+  STAND
+  DOUBLE
+  SPLIT
+  SURRENDER
+  INSURANCE_TAKEN
+  INSURANCE_DECLINED
+}
+
+/// One sit-down at the Blackjack table: the table rules and starting
+/// bankroll in effect for every round in this session.
+model BlackjackSession {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  numDecks         Int
+  dealerHitsSoft17 Boolean
+  blackjackPayout  Float
+  minBet           Int
+  maxBet           Int
+  startStack       Int
+  endStack         Int?
+  roundsPlayed     Int       @default(0)
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+
+  rounds BlackjackRound[]
+
+  @@index([userId])
+}
+
+/// A single dealt round: the dealer's final hand plus every box played that
+/// round (the hero's boxes across however many seats/boxes they controlled,
+/// and the bots filling the other seats).
+model BlackjackRound {
+  id          String           @id @default(cuid())
+  sessionId   String
+  session     BlackjackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roundNumber Int
+  dealerCards String // JSON-encoded array of Card strings
+  dealerTotal Int
+  playedAt    DateTime         @default(now())
+
+  boxes   BlackjackBoxResult[]
+  actions BlackjackActionLog[]
+
+  @@index([sessionId])
+  @@index([userId])
+}
+
+/// One resolved hand (box) within a round. The hero can have several per
+/// round (multiple seats and/or multiple boxes per seat); bot boxes are
+/// stored too so round history is complete, but only isHero=true boxes feed
+/// the hero's own stats.
+model BlackjackBoxResult {
+  id            String           @id @default(cuid())
+  roundId       String
+  round         BlackjackRound   @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  isHero        Boolean
+  actorName     String
+  seat          Int
+  boxIndex      Int
+  cards         String // JSON-encoded array of Card strings (final hand)
+  finalTotal    Int
+  bet           Int
+  insuranceBet  Int              @default(0)
+  isDoubled     Boolean          @default(false)
+  isFromSplit   Boolean          @default(false)
+  isBlackjack   Boolean          @default(false)
+  isBust        Boolean          @default(false)
+  isSurrendered Boolean          @default(false)
+  result        BlackjackOutcome
+  payout        Int
+
+  @@index([roundId])
+}
+
+/// Per-decision log for the hero's own boxes (bots always play optimally, so
+/// they aren't logged here). wasOptimal compares the action taken against
+/// the basic-strategy advisor (Step B2) and powers the "strategy adherence"
+/// stat on the dashboard (Step B4).
+model BlackjackActionLog {
+  id              String              @id @default(cuid())
+  roundId         String
+  round           BlackjackRound      @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  seat            Int
+  boxIndex        Int
+  sequence        Int
+  action          BlackjackActionType
+  handTotalBefore Int
+  dealerUpCard    String
+  wasOptimal      Boolean?
+  createdAt       DateTime            @default(now())
+
+  @@index([roundId])
+}
+
+// ---------------------------------------------------------------------
+// Card counting trainer
+// ---------------------------------------------------------------------
+
+enum CountingSystem {
+  HI_LO
+  KO
+  OMEGA_II
+  RED_7
+  HI_OPT_I
+}
+
+enum CountingPracticeMode {
+  RUNNING_COUNT
+  TRUE_COUNT
+}
+
+/// One completed (or abandoned) card-counting drill: which system/level/mode
+/// was practiced and how accurate the user's periodic count checkpoints were.
+model CardCountingSession {
+  id                 String               @id @default(cuid())
+  userId             String
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  system             CountingSystem
+  practiceMode       CountingPracticeMode
+  level              Int
+  deckCount          Int
+  cardsSeen          Int
+  checkpoints        Int
+  correctCheckpoints Int
+  avgAbsoluteError   Float
+  startedAt          DateTime             @default(now())
+  endedAt            DateTime?
+
+  @@index([userId])
+}
