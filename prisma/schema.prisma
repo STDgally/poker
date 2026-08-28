@@ -47,10 +47,11 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions          Session[]
-  handHistories     HandHistory[]
-  blackjackSessions BlackjackSession[]
-  blackjackRounds   BlackjackRound[]
+  sessions             Session[]
+  handHistories        HandHistory[]
+  blackjackSessions    BlackjackSession[]
+  blackjackRounds      BlackjackRound[]
+  cardCountingSessions CardCountingSession[]
 }
 
 /// One sit-down at the table (a cash-game session or a tournament run).
@@ -235,4 +236,41 @@ model BlackjackActionLog {
   createdAt       DateTime            @default(now())
 
   @@index([roundId])
+}
+
+// ---------------------------------------------------------------------
+// Card counting trainer
+// ---------------------------------------------------------------------
+
+enum CountingSystem {
+  HI_LO
+  KO
+  OMEGA_II
+  RED_7
+  HI_OPT_I
+}
+
+enum CountingPracticeMode {
+  RUNNING_COUNT
+  TRUE_COUNT
+}
+
+/// One completed (or abandoned) card-counting drill: which system/level/mode
+/// was practiced and how accurate the user's periodic count checkpoints were.
+model CardCountingSession {
+  id                 String               @id @default(cuid())
+  userId             String
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  system             CountingSystem
+  practiceMode       CountingPracticeMode
+  level              Int
+  deckCount          Int
+  cardsSeen          Int
+  checkpoints        Int
+  correctCheckpoints Int
+  avgAbsoluteError   Float
+  startedAt          DateTime             @default(now())
+  endedAt            DateTime?
+
+  @@index([userId])
 }

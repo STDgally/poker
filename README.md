@@ -295,7 +295,8 @@ Roadmap in step verificabili, come per il poker:
   (anche su più postazioni contemporaneamente), bot, area scommesse, hint di strategia in tempo
   reale.
 - **B4 (completato):** statistiche persistite (aderenza alla strategia, win rate) + dashboard.
-- B5: trainer conteggio carte (più sistemi, livelli di difficoltà) — da fare.
+- **B5 (completato):** trainer conteggio carte (5 sistemi, 5 livelli di difficoltà, modalità
+  conteggio corrente/true count), con statistiche persistite e dashboard dedicata.
 - B6: impostazioni estese (regole banco) + accessibilità (tastiera, screen reader, alto
   contrasto, testo ridimensionabile) — da fare.
 
@@ -400,3 +401,25 @@ sempre "Sta" (per generare decisioni deliberatamente sub-ottimali) hanno prodott
 l'aderenza cumulata al 75% — la direzione e l'entità del cambiamento confermano che il tracciamento
 funziona. Controllato anche via query SQL dirette che i singoli `wasOptimal` corrispondessero
 correttamente alla strategia base per la combinazione totale/carta del banco registrata.
+
+### Trainer conteggio carte (Step B5)
+
+`/blackjack/counting-trainer`. `src/lib/counting/systems.ts` implementa 5 sistemi di conteggio
+reali: **Hi-Lo** (il più diffuso), **KO** (sbilanciato, senza conversione a true count), **Omega
+II** (livello 2, valori fino a ±2), **Red 7** (variante di Hi-Lo sensibile al colore) e **Hi-Opt
+I** (bilanciato, ignora l'Asso). `src/lib/counting/levels.ts` definisce 5 livelli che aumentano
+velocità di distribuzione (2,5s → 0,5s a carta) e numero di mazzi (1 → 8) in progressione.
+
+Il drill (`countingTrainerStore.ts`) distribuisce carte una alla volta al ritmo del livello
+scelto; a intervalli regolari (dipende dal livello) chiede all'utente il conteggio corrente — o
+il **true count** (conteggio / mazzi rimanenti), disponibile solo per i sistemi bilanciati, dato
+che per quelli sbilanciati la conversione non ha significato matematico (l'opzione è disabilitata
+in UI di conseguenza). Ogni sessione viene salvata (`CardCountingSession`) con accuratezza ed
+errore medio, e la dashboard ha ora un terzo tab "Conteggio carte" con grafico dell'accuratezza
+nel tempo tra le sessioni.
+
+**Verificato in un browser reale**: drill portato fino al primo checkpoint e oltre, submit di una
+risposta e ripresa automatica della distribuzione, riepilogo finale con numeri coerenti,
+persistenza confermata via il tab dashboard dedicato. Verificato anche che la modalità true count
+sia selezionabile per un sistema bilanciato (Hi-Lo) e correttamente disabilitata per uno
+sbilanciato (KO).
