@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { BlackjackEngine } from '@/lib/blackjack/BlackjackEngine';
 import { getBasicStrategyAction, shouldTakeInsurance } from '@/lib/blackjack/basicStrategy';
 import { computeHandValue } from '@/lib/blackjack/handValue';
-import { BetInput, BlackjackGameState, BlackjackPhase, BoxAction, SeatConfig } from '@/lib/blackjack/types';
+import { BetInput, BlackjackGameState, BlackjackPhase, BlackjackRules, BoxAction, SeatConfig } from '@/lib/blackjack/types';
 import { playCheckSound, playChipSound, playFoldSound, playRaiseSound, playWinSound, playYourTurnSound } from '@/lib/sound/sounds';
 import {
   BlackjackActionLogPayload,
@@ -76,7 +76,7 @@ interface BlackjackStore {
   log: string[];
   pendingBets: Record<string, number>;
 
-  initTable: (seatConfigs: SeatConfig[], heroStartingBankroll: number) => void;
+  initTable: (seatConfigs: SeatConfig[], heroStartingBankroll: number, rulesOverride?: Partial<BlackjackRules>) => void;
   resetTable: () => void;
   setPendingBet: (seat: number, boxIndex: number, amount: number) => void;
   dealRound: () => void;
@@ -265,8 +265,8 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
     log: [],
     pendingBets: {},
 
-    initTable: (seatConfigs, heroStartingBankroll) => {
-      const engine = new BlackjackEngine(seatConfigs, heroStartingBankroll);
+    initTable: (seatConfigs, heroStartingBankroll, rulesOverride) => {
+      const engine = new BlackjackEngine(seatConfigs, heroStartingBankroll, rulesOverride);
       const state = engine.getState();
       const pendingBets: Record<string, number> = {};
       for (const seat of state.seats) {

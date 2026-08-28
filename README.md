@@ -297,8 +297,8 @@ Roadmap in step verificabili, come per il poker:
 - **B4 (completato):** statistiche persistite (aderenza alla strategia, win rate) + dashboard.
 - **B5 (completato):** trainer conteggio carte (5 sistemi, 5 livelli di difficoltà, modalità
   conteggio corrente/true count), con statistiche persistite e dashboard dedicata.
-- B6: impostazioni estese (regole banco) + accessibilità (tastiera, screen reader, alto
-  contrasto, testo ridimensionabile) — da fare.
+- **B6 (completato):** impostazioni estese (regole banco configurabili) + accessibilità (tastiera,
+  screen reader, alto contrasto/daltonismo, testo ridimensionabile).
 
 ### `BlackjackEngine` (Step B1)
 
@@ -423,3 +423,39 @@ risposta e ripresa automatica della distribuzione, riepilogo finale con numeri c
 persistenza confermata via il tab dashboard dedicato. Verificato anche che la modalità true count
 sia selezionabile per un sistema bilanciato (Hi-Lo) e correttamente disabilitata per uno
 sbilanciato (KO).
+
+### Impostazioni estese & accessibilità (Step B6)
+
+**Regole del banco configurabili** (`/settings` → "Regole del banco"): numero di mazzi (1-8), se
+il banco pesca su 17 morbido, pagamento del blackjack naturale (3:2 standard o 6:5), raddoppio
+dopo lo split, resa tardiva, limiti di puntata. Applicate al `BlackjackEngine` la prossima volta
+che ti siedi al tavolo (`SetupPanel` legge `useSettingsStore().blackjackRules` e le passa a
+`initTable`).
+
+**Accessibilità**, applicata trasversalmente a tutta l'app, non solo elencata nelle impostazioni:
+- **Tastiera**: scorciatoie per le azioni di gioco — F/C/R al poker (Fold/Check-Call/Rilancia),
+  H/S/D/P/U al blackjack (Hit/Stand/Double/Split/sUrrender), Y/N per l'assicurazione — mostrate
+  direttamente sui pulsanti quando attive, disattivabili in un'unica impostazione.
+- **Screen reader**: `aria-label` su ogni carta (es. "Asso di picche", "Carta coperta") invece di
+  affidarsi solo al colore/simbolo visivo; i pannelli Log di entrambi i tavoli sono
+  `aria-live="polite"` così gli eventi di gioco vengono annunciati automaticamente.
+- **Alto contrasto / daltonismo**: sotto il tavolo blackjack e poker, il rosso di cuori/quadri
+  diventa blu (`PlayingCard` legge `highContrast` dallo store) — rosso/nero è tra le coppie più
+  difficili da distinguere per il daltonismo rosso-verde; testo attenuato e bordi diventano più
+  luminosi in tutta l'app tramite override CSS mirati (`[data-high-contrast="true"]` in
+  `globals.css`) invece di dover ritoccare ogni componente singolarmente.
+- **Testo/UI ridimensionabile**: 3 livelli (Normale/Grande/Molto grande) che scalano il
+  `font-size` della radice del documento — dato che la UI è quasi interamente in unità `rem`,
+  scala coerentemente tutta l'interfaccia, non solo il testo.
+
+**Verificato in un browser reale**: dimensione font della radice del documento confermata a
+20.8px dopo aver selezionato "Molto grande" (16 × 1.3), attributo `data-high-contrast` confermato
+`true` dopo il toggle; scorciatoia `C` sul poker e `S` sul blackjack confermate funzionanti
+leggendo il log di gioco dopo la pressione del tasto; `aria-label` di una carta confermato
+corretto ("Re di cuori") via query sull'albero di accessibilità della pagina.
+
+---
+
+Con lo Step B6 si chiude l'intera roadmap Blackjack (B1-B6): motore di gioco, strategia base,
+tavolo multi-postazione/multi-box, statistiche persistite, trainer per il conteggio delle carte,
+regole configurabili e accessibilità — accanto al simulatore di Poker (Step 1-4) già completo.

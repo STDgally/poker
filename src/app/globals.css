@@ -1,3 +1,36 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* High-contrast / accessibility mode: brighten the muted text and border
+ * utility classes used throughout the app. Scoped to the data attribute set
+ * by <AccessibilityApplier> rather than duplicating every component's
+ * classNames, since these utility classes are reused consistently app-wide. */
+[data-high-contrast='true'] .text-slate-400,
+[data-high-contrast='true'] .text-slate-500 {
+  color: #e2e8f0 !important;
+}
+
+[data-high-contrast='true'] .text-slate-300 {
+  color: #f8fafc !important;
+}
+
+[data-high-contrast='true'] .border-slate-700,
+[data-high-contrast='true'] .border-slate-800 {
+  border-color: #94a3b8 !important;
+}
+
+[data-high-contrast='true'] button:focus-visible,
+[data-high-contrast='true'] a:focus-visible,
+[data-high-contrast='true'] input:focus-visible {
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 2px;
+}
+
+/* Always-on: a visible focus ring for keyboard navigation, regardless of high-contrast mode. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+}

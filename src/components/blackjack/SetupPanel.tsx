@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useBlackjackStore } from '@/store/blackjackStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { SeatConfig, SeatOccupant } from '@/lib/blackjack/types';
 
 const SEAT_NUMBERS = [0, 1, 2, 3, 4, 5];
@@ -14,6 +15,7 @@ interface SeatSetup {
 
 export function SetupPanel() {
   const initTable = useBlackjackStore((s) => s.initTable);
+  const blackjackRules = useSettingsStore((s) => s.blackjackRules);
   const [startingStack, setStartingStack] = useState(STARTING_STACK_DEFAULT);
   const [seats, setSeats] = useState<SeatSetup[]>(
     SEAT_NUMBERS.map((seat) => ({ occupant: seat === 0 ? 'HERO' : seat <= 2 ? 'BOT' : 'EMPTY', boxCount: 1 })),
@@ -34,7 +36,7 @@ export function SetupPanel() {
       name: s.occupant === 'HERO' ? (heroSeatCount > 1 ? `Tu (postazione ${i + 1})` : 'Tu') : s.occupant === 'BOT' ? `Bot ${i + 1}` : '',
       boxCount: s.occupant === 'HERO' ? s.boxCount : 1,
     }));
-    initTable(seatConfigs, startingStack);
+    initTable(seatConfigs, startingStack, blackjackRules);
   }
 
   return (

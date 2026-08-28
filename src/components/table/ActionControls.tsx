@@ -19,6 +19,7 @@ export function ActionControls() {
   const humanCheckOrCall = useTableStore((s) => s.humanCheckOrCall);
   const humanBetOrRaise = useTableStore((s) => s.humanBetOrRaise);
   const betDisplayUnit = useSettingsStore((s) => s.betDisplayUnit);
+  const keyboardShortcutsEnabled = useSettingsStore((s) => s.keyboardShortcutsEnabled);
 
   // Re-derived on every gameState change, which always follows an engine mutation.
   const legalActions = engine.getLegalActions(heroId);
@@ -30,6 +31,20 @@ export function ActionControls() {
     // Only reset the slider when the minimum raise actually changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legalActions?.minRaiseTo]);
+
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled || !legalActions) return;
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const canRaiseNow = legalActions!.actions.includes(PlayerActionType.RAISE) || legalActions!.actions.includes(PlayerActionType.BET);
+      if (e.key === 'f' || e.key === 'F') humanFold();
+      else if (e.key === 'c' || e.key === 'C') humanCheckOrCall();
+      else if ((e.key === 'r' || e.key === 'R') && canRaiseNow) humanBetOrRaise(raiseAmount);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [keyboardShortcutsEnabled, legalActions, raiseAmount, humanFold, humanCheckOrCall, humanBetOrRaise]);
 
   if (gameState.handNumber === 0) {
     return (
@@ -122,22 +137,27 @@ export function ActionControls() {
       <div className="flex gap-3">
         <button
           onClick={humanFold}
+          aria-keyshortcuts={keyboardShortcutsEnabled ? 'F' : undefined}
           className="flex-1 rounded-md bg-rose-700 px-4 py-3 font-semibold text-white transition hover:bg-rose-600"
         >
-          Fold
+          Fold{keyboardShortcutsEnabled ? ' (F)' : ''}
         </button>
         <button
           onClick={humanCheckOrCall}
+          aria-keyshortcuts={keyboardShortcutsEnabled ? 'C' : undefined}
           className="flex-1 rounded-md bg-emerald-700 px-4 py-3 font-semibold text-white transition hover:bg-emerald-600"
         >
           {callLabel}
+          {keyboardShortcutsEnabled ? ' (C)' : ''}
         </button>
         {canRaise && (
           <button
             onClick={() => humanBetOrRaise(raiseAmount)}
+            aria-keyshortcuts={keyboardShortcutsEnabled ? 'R' : undefined}
             className="flex-1 rounded-md bg-amber-500 px-4 py-3 font-semibold text-slate-900 transition hover:bg-amber-400"
           >
             {isShoveOnly ? `All-in ${formatBetAmount(legalActions.maxRaiseTo, gameState.bigBlind, betDisplayUnit)}` : isOpenBet ? `Punta ${formatBetAmount(raiseAmount, gameState.bigBlind, betDisplayUnit)}` : `Rilancia a ${formatBetAmount(raiseAmount, gameState.bigBlind, betDisplayUnit)}`}
+            {keyboardShortcutsEnabled ? ' (R)' : ''}
           </button>
         )}
       </div>

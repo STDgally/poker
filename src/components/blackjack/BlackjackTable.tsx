@@ -56,7 +56,7 @@ export function BlackjackTable() {
 
           <div className="w-full max-w-md rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
             <div className="mb-1 font-semibold text-slate-300">Log</div>
-            <ul className="max-h-32 space-y-0.5 overflow-y-auto">
+            <ul className="max-h-32 space-y-0.5 overflow-y-auto" aria-live="polite" aria-atomic="false">
               {log.map((entry, i) => (
                 <li key={i}>{entry}</li>
               ))}

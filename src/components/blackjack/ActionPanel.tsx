@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useBlackjackStore } from '@/store/blackjackStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { describeRecommendation, getBasicStrategyAction } from '@/lib/blackjack/basicStrategy';
 import { computeHandValue } from '@/lib/blackjack/handValue';
 import { BlackjackPhase, BoxAction } from '@/lib/blackjack/types';
@@ -13,11 +15,56 @@ const ACTION_LABELS: Record<BoxAction, string> = {
   SURRENDER: 'Arrenditi',
 };
 
+const ACTION_SHORTCUTS: Record<BoxAction, string> = {
+  HIT: 'H',
+  STAND: 'S',
+  DOUBLE: 'D',
+  SPLIT: 'P',
+  SURRENDER: 'U',
+};
+
 export function ActionPanel() {
   const gameState = useBlackjackStore((s) => s.gameState);
   const engine = useBlackjackStore((s) => s.engine);
   const humanAction = useBlackjackStore((s) => s.humanAction);
   const humanInsuranceDecision = useBlackjackStore((s) => s.humanInsuranceDecision);
+  const keyboardShortcutsEnabled = useSettingsStore((s) => s.keyboardShortcutsEnabled);
+
+  // Reads fresh state via getState() at keydown time rather than closing over
+  // component-scope values, so this effect only needs to be re-attached when
+  // the setting itself changes.
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      const state = useBlackjackStore.getState();
+      const gs = state.gameState;
+      const eng = state.engine;
+      if (!gs || !eng || !gs.activeBoxId) return;
+
+      const box = gs.seats.flatMap((s) => s.boxes).find((b) => b.id === gs.activeBoxId);
+      const seat = gs.seats.find((s) => s.seat === box?.seat);
+      if (!box || !seat || seat.occupant !== 'HERO') return;
+
+      if (gs.phase === BlackjackPhase.INSURANCE) {
+        if (e.key === 'y' || e.key === 'Y') state.humanInsuranceDecision(box.id, true);
+        else if (e.key === 'n' || e.key === 'N') state.humanInsuranceDecision(box.id, false);
+        return;
+      }
+
+      const legal = eng.getLegalActions(box.id);
+      if (!legal) return;
+      const keyMap: Record<string, BoxAction> = { h: 'HIT', s: 'STAND', d: 'DOUBLE', p: 'SPLIT', u: 'SURRENDER' };
+      const action = keyMap[e.key.toLowerCase()];
+      if (action && legal.actions.includes(action)) state.humanAction(box.id, action);
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [keyboardShortcutsEnabled]);
 
   if (!gameState || !engine || !gameState.activeBoxId) return null;
 
@@ -40,13 +87,13 @@ export function ActionPanel() {
             onClick={() => humanInsuranceDecision(box.id, false)}
             className="flex-1 rounded-md bg-emerald-700 px-4 py-2 font-semibold text-white transition hover:bg-emerald-600"
           >
-            Rifiuta (consigliato)
+            Rifiuta (consigliato){keyboardShortcutsEnabled ? ' (N)' : ''}
           </button>
           <button
             onClick={() => humanInsuranceDecision(box.id, true)}
             className="flex-1 rounded-md bg-rose-700 px-4 py-2 font-semibold text-white transition hover:bg-rose-600"
           >
-            Assicurati
+            Assicurati{keyboardShortcutsEnabled ? ' (Y)' : ''}
           </button>
         </div>
       </div>
@@ -78,6 +125,7 @@ export function ActionPanel() {
               key={action}
               disabled={!isLegal}
               onClick={() => humanAction(box.id, action)}
+              aria-keyshortcuts={keyboardShortcutsEnabled ? ACTION_SHORTCUTS[action] : undefined}
               className={`rounded-md border px-2 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-30 ${
                 isRecommended
                   ? 'border-amber-400 bg-amber-500 text-slate-900 hover:bg-amber-400'
@@ -85,6 +133,7 @@ export function ActionPanel() {
               }`}
             >
               {ACTION_LABELS[action]}
+              {keyboardShortcutsEnabled ? ` (${ACTION_SHORTCUTS[action]})` : ''}
             </button>
           );
         })}
