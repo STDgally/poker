@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useTableStore } from '@/store/tableStore';
 import { PlayerSeat } from './PlayerSeat';
 import { PotDisplay } from './PotDisplay';
@@ -31,7 +32,12 @@ export function PokerTable() {
 
   return (
     <div className="flex min-h-screen flex-col items-center gap-6 bg-slate-950 p-6 text-slate-100">
-      <h1 className="mb-4 text-2xl font-bold">Poker Simulator &amp; Analytics — Tavolo 6-max</h1>
+      <div className="mb-4 flex w-full max-w-4xl items-center justify-between">
+        <h1 className="text-2xl font-bold">Poker Simulator &amp; Analytics — Tavolo 6-max</h1>
+        <Link href="/dashboard" className="text-sm text-sky-400 hover:text-sky-300">
+          Dashboard &rarr;
+        </Link>
+      </div>
 
       <div className="relative mt-8 aspect-[16/9] w-full max-w-4xl rounded-[50%] border-8 border-feltDark bg-felt shadow-2xl">
         {orderedPlayers.map((player) => {

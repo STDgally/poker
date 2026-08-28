@@ -12,7 +12,8 @@ Prisma + MySQL (persistenza), `pokersolver` (valutazione mani).
 - **STEP 2 (completato):** profili bot TAG / Calling Station e logica di decisione basata su
   equity (Monte Carlo).
 - **STEP 3 (completato):** tavolo React (Zustand + `GameEngine`), HUD bot, controlli umani.
-- STEP 4: dashboard `/dashboard` con grafici — da fare.
+- **STEP 4 (completato):** persistenza hand history su MySQL via Prisma + dashboard `/dashboard`
+  con grafico bankroll e statistiche aggregate (VPIP, PFR, BB/100).
 
 ## Setup ambiente locale
 
@@ -114,6 +115,17 @@ src/
     ActionControls.tsx      # Fold, Check/Call, slider Raise per l'utente umano
   app/
     layout.tsx, page.tsx, globals.css   # rende <PokerTable /> come home page
+    api/
+      sessions/route.ts    # POST: crea una Session (avvio tavolo)
+      hands/route.ts         # POST: salva una HandHistory + i suoi ActionLog
+    dashboard/page.tsx      # Server Component: legge le statistiche via Prisma
+  components/dashboard/
+    BankrollChart.tsx        # grafico Recharts: bankroll cumulativo vs mani giocate
+    StatsTable.tsx             # tabella: mani giocate, BB/100, VPIP, PFR, ...
+  lib/
+    analytics.ts               # getUserStats(): aggregazione Prisma per la dashboard
+    localUser.ts                # profilo locale unico (nessun sistema di auth nell'MVP)
+    hands/types.ts              # contratti condivisi client/API per il tracking mani
 ```
 
 ### `GameEngine`: uso di base
@@ -185,3 +197,29 @@ Verificato in un browser reale (Playwright, non solo build/typecheck): mano comp
 allo showdown, click su Fold/Call/Raise, e un bug di hydration SSR reale è stato trovato e
 corretto (`toLocaleString('it-IT')` produceva testo diverso lato server rispetto al client per
 via dei dati ICU limitati di Node — sostituito con un formatter manuale in `src/lib/format.ts`).
+
+### Hand history & Dashboard (Step 4)
+
+Ogni mano completata al tavolo viene salvata in background su MySQL via due route handler:
+
+- `POST /api/sessions` — crea la `Session` (blind, buy-in) alla prima mano della sessione browser.
+- `POST /api/hands` — salva `HandHistory` (carte hero, board, pot, risultato netto, VPIP/PFR/
+  showdown/vittoria) e i relativi `ActionLog` (inclusi i post di piccolo/grande buio), e
+  incrementa `Session.handsPlayed`.
+
+Il salvataggio è "best-effort" e asincrono: se il server/DB non è raggiungibile, il tavolo
+continua a funzionare normalmente (solo senza tracciare quella mano), non blocca mai il gioco.
+Non essendoci ancora un sistema di autenticazione, tutte le mani vengono attribuite a un unico
+profilo locale (`getOrCreateLocalUser`, username `local_player`).
+
+`/dashboard` è un Server Component che interroga Prisma direttamente (`getUserStats` in
+`src/lib/analytics.ts`) e mostra:
+- un grafico Recharts del bankroll cumulativo (chips) rispetto alle mani giocate;
+- una tabella con mani giocate, risultato netto, **BB/100** (calcolato normalizzando il risultato
+  di ogni mano sul big blind della propria sessione), **VPIP%**, **PFR%** e % Went-to-Showdown.
+
+**Verificato end-to-end con un database reale**, non solo a livello di build: ho installato
+MariaDB in locale, applicato la migration Prisma (`prisma migrate dev`), e con Playwright ho
+giocato più mani complete dal tavolo verificando via query SQL dirette che `HandHistory` e
+`ActionLog` contenessero i dati corretti (posizione, pot, risultato netto, sequenza di azioni
+per street), e che `/dashboard` mostrasse il grafico e le statistiche coerenti con quei dati.

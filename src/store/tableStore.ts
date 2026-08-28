@@ -2,10 +2,12 @@
 
 import { create } from 'zustand';
 import { GameEngine } from '@/lib/game/GameEngine';
-import { GameState, PlayerAction, PlayerActionType, SeedPlayer } from '@/lib/game/types';
-import { playBotAction } from '@/lib/bots/runBot';
+import { GameState, LegalActions, PlayerAction, PlayerActionType, SeedPlayer, Street } from '@/lib/game/types';
+import { getPositionLabel } from '@/lib/game/position';
+import { decideBotAction } from '@/lib/bots/botPolicy';
 import { BotProfileConfig } from '@/lib/bots/types';
 import { TAG_PROFILE, CALLING_STATION_PROFILE } from '@/lib/bots/profiles';
+import { CreateSessionPayload, CreateSessionResponse, HandActionPayload, RecordHandPayload } from '@/lib/hands/types';
 
 export const HERO_ID = 'hero';
 const STARTING_STACK = 1000;
@@ -63,6 +65,22 @@ function describeAction(name: string, action: PlayerAction): string {
   }
 }
 
+/** What to log for a BET/RAISE is the raise-to amount (readable in a hand history);
+ * for a CALL it's the chips needed to call; for ALL_IN it's whatever stack remained. */
+function computeLoggedAmount(preLegal: LegalActions | null, preStack: number, action: PlayerAction): number {
+  switch (action.type) {
+    case PlayerActionType.CALL:
+      return preLegal?.callAmount ?? 0;
+    case PlayerActionType.BET:
+    case PlayerActionType.RAISE:
+      return action.amount ?? 0;
+    case PlayerActionType.ALL_IN:
+      return preStack;
+    default:
+      return 0;
+  }
+}
+
 interface TableStore {
   engine: GameEngine;
   gameState: GameState;
@@ -79,6 +97,17 @@ interface TableStore {
 export const useTableStore = create<TableStore>((set, get) => {
   const engine = new GameEngine(SEED_PLAYERS, SMALL_BLIND, BIG_BLIND, 0);
 
+  // Per-hand bookkeeping for hand-history persistence. Plain closured state
+  // (not part of the reactive store) since the UI never needs to render it directly.
+  let sessionId: string | null = null;
+  let sessionCreationPromise: Promise<string | null> | null = null;
+  let currentHandActions: HandActionPayload[] = [];
+  let actionSequence = 0;
+  let heroStartStack = STARTING_STACK;
+  let heroVpip = false;
+  let heroPfr = false;
+  let handPersisted = false;
+
   function pushLog(message: string) {
     set((state) => ({ log: [message, ...state.log].slice(0, 40) }));
   }
@@ -87,11 +116,150 @@ export const useTableStore = create<TableStore>((set, get) => {
     set({ gameState: snapshot(engine) });
   }
 
+  function logAction(street: Street, seat: number, actorType: 'HUMAN' | 'BOT', actorName: string, action: PlayerAction, amount: number, potAfter: number) {
+    currentHandActions.push({
+      street,
+      seat,
+      actorType,
+      actorName,
+      action: action.type,
+      amount,
+      potAfter,
+      sequence: actionSequence++,
+    });
+  }
+
+  /** Posts blinds happen inside engine.startHand() itself; log them as synthetic
+   * entries right after so the persisted hand history includes them. */
+  function logBlinds() {
+    const state = engine.getState();
+    const sb = state.players.find((p) => p.seat === state.sbSeat)!;
+    const bb = state.players.find((p) => p.seat === state.bbSeat)!;
+    currentHandActions.push({
+      street: Street.PREFLOP,
+      seat: sb.seat,
+      actorType: sb.isBot ? 'BOT' : 'HUMAN',
+      actorName: sb.name,
+      action: 'POST_SB',
+      amount: sb.currentStreetBet,
+      potAfter: sb.currentStreetBet,
+      sequence: actionSequence++,
+    });
+    currentHandActions.push({
+      street: Street.PREFLOP,
+      seat: bb.seat,
+      actorType: bb.isBot ? 'BOT' : 'HUMAN',
+      actorName: bb.name,
+      action: 'POST_BB',
+      amount: bb.currentStreetBet,
+      potAfter: sb.currentStreetBet + bb.currentStreetBet,
+      sequence: actionSequence++,
+    });
+  }
+
+  function applyAndLog(playerId: string, action: PlayerAction) {
+    const before = engine.getState();
+    const player = before.players.find((p) => p.id === playerId)!;
+    const preLegal = engine.getLegalActions(playerId);
+    const street = before.street;
+    const loggedAmount = computeLoggedAmount(preLegal, player.stack, action);
+
+    if (playerId === HERO_ID && street === Street.PREFLOP) {
+      if (action.type === PlayerActionType.CALL || action.type === PlayerActionType.BET || action.type === PlayerActionType.RAISE || action.type === PlayerActionType.ALL_IN) {
+        heroVpip = true;
+      }
+      if (action.type === PlayerActionType.BET || action.type === PlayerActionType.RAISE || action.type === PlayerActionType.ALL_IN) {
+        heroPfr = true;
+      }
+    }
+
+    engine.applyAction(playerId, action);
+
+    const potAfter = engine.getDisplayPot();
+    logAction(street, player.seat, player.isBot ? 'BOT' : 'HUMAN', player.name, action, loggedAmount, potAfter);
+    pushLog(describeAction(player.isBot ? player.name : 'Tu', action));
+  }
+
+  async function ensureSession(): Promise<string | null> {
+    if (sessionId) return sessionId;
+    if (!sessionCreationPromise) {
+      const payload: CreateSessionPayload = {
+        type: 'CASH',
+        smallBlind: SMALL_BLIND,
+        bigBlind: BIG_BLIND,
+        buyIn: STARTING_STACK,
+        startStack: STARTING_STACK,
+      };
+      sessionCreationPromise = fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then((res) => (res.ok ? (res.json() as Promise<CreateSessionResponse>) : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((data) => {
+          sessionId = data.sessionId;
+          return sessionId;
+        })
+        .catch((err) => {
+          console.error('Impossibile creare la sessione per il tracking:', err);
+          sessionCreationPromise = null;
+          return null;
+        });
+    }
+    return sessionCreationPromise;
+  }
+
+  async function persistHand() {
+    const state = engine.getState();
+    const hero = state.players.find((p) => p.id === HERO_ID)!;
+    const sid = await ensureSession();
+    if (!sid) return; // tracking is best-effort; gameplay must not depend on it
+
+    const potSize = state.pots.reduce((sum, p) => sum + p.amount, 0);
+    const payload: RecordHandPayload = {
+      sessionId: sid,
+      handNumber: state.handNumber,
+      dealerSeat: state.dealerSeat,
+      heroSeat: hero.seat,
+      heroPosition: getPositionLabel(hero.seat, state.dealerSeat, state.players.length),
+      heroCards: hero.holeCards,
+      board: state.board,
+      potSize,
+      heroNetResult: hero.stack - heroStartStack,
+      vpip: heroVpip,
+      pfr: heroPfr,
+      wentToShowdown: state.street === Street.SHOWDOWN && !hero.isFolded,
+      wonHand: state.winners.some((w) => w.playerId === HERO_ID),
+      actions: currentHandActions,
+    };
+
+    try {
+      const res = await fetch('/api/hands', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      console.error('Impossibile salvare la hand history:', err);
+    }
+  }
+
   /** After any action, keep applying bot decisions (with a small UX delay)
    * until it's the human's turn again or the hand is over. */
   function advanceBots() {
     const state = engine.getState();
-    if (state.isHandComplete || state.actionOnSeat === null) {
+
+    if (state.isHandComplete) {
+      syncState();
+      if (!handPersisted) {
+        handPersisted = true;
+        void persistHand();
+      }
+      return;
+    }
+
+    if (state.actionOnSeat === null) {
       syncState();
       return;
     }
@@ -106,8 +274,10 @@ export const useTableStore = create<TableStore>((set, get) => {
     set({ isBotActing: true });
     setTimeout(() => {
       const profile = get().botProfiles[actor.id];
-      const action = playBotAction(engine, actor.id, profile);
-      pushLog(describeAction(actor.name, action));
+      const legalActions = engine.getLegalActions(actor.id);
+      if (!legalActions) throw new Error(`${actor.id} has no legal action available right now`);
+      const action = decideBotAction({ state: engine.getState(), playerId: actor.id, legalActions, potSize: engine.getDisplayPot(), profile });
+      applyAndLog(actor.id, action);
       set({ isBotActing: false });
       advanceBots();
     }, BOT_ACTION_DELAY_MS);
@@ -122,31 +292,36 @@ export const useTableStore = create<TableStore>((set, get) => {
     isBotActing: false,
 
     startNewHand: () => {
+      void ensureSession();
+      heroStartStack = engine.getState().players.find((p) => p.id === HERO_ID)!.stack;
       engine.startHand();
+      currentHandActions = [];
+      actionSequence = 0;
+      heroVpip = false;
+      heroPfr = false;
+      handPersisted = false;
+      logBlinds();
       pushLog(`--- Mano #${engine.getState().handNumber} ---`);
       syncState();
       advanceBots();
     },
 
     humanFold: () => {
-      engine.applyAction(HERO_ID, { type: PlayerActionType.FOLD });
-      pushLog(describeAction('Tu', { type: PlayerActionType.FOLD }));
+      applyAndLog(HERO_ID, { type: PlayerActionType.FOLD });
       advanceBots();
     },
 
     humanCheckOrCall: () => {
       const legal = engine.getLegalActions(HERO_ID);
       const type = legal && legal.callAmount > 0 ? PlayerActionType.CALL : PlayerActionType.CHECK;
-      engine.applyAction(HERO_ID, { type });
-      pushLog(describeAction('Tu', { type }));
+      applyAndLog(HERO_ID, { type });
       advanceBots();
     },
 
     humanBetOrRaise: (amount: number) => {
       const state = engine.getState();
       const type = state.currentBet === 0 ? PlayerActionType.BET : PlayerActionType.RAISE;
-      engine.applyAction(HERO_ID, { type, amount });
-      pushLog(describeAction('Tu', { type, amount }));
+      applyAndLog(HERO_ID, { type, amount });
       advanceBots();
     },
   };
