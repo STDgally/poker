@@ -1,7 +1,6 @@
 import { createShoe, needsReshuffle as computeNeedsReshuffle } from './shoe';
 import { computeHandValue, isPair, TEN_VALUE_RANKS } from './handValue';
 import {
-  BetInput,
   BlackjackGameState,
   BlackjackPhase,
   BlackjackRules,
@@ -10,34 +9,30 @@ import {
   Card,
   DEFAULT_RULES,
   LegalBoxActions,
-  SeatConfig,
   SeatState,
 } from './types';
 
-/** Bots never need to worry about running out of chips — they exist to fill seats, not to be tracked financially. */
-const BOT_BANKROLL = 1_000_000;
+/** The table always has exactly 3 betting spots the hero can claim by sitting down. */
+const SEAT_COUNT = 3;
 
 /**
- * Drives a single Blackjack table: shoe management, dealing, insurance,
- * hit/stand/double/split/surrender per box, dealer play, and payout
- * settlement. Mirrors the poker GameEngine's design: in-place mutated state,
- * a single getState() accessor, and no knowledge of *how* a bot decides —
- * callers (the store, in Step B3) drive bot boxes via applyAction() just
- * like the human's.
+ * Drives a single Blackjack table: seating, shoe management, dealing,
+ * insurance, hit/stand/double/split/surrender per box, dealer play, and
+ * payout settlement. Mirrors the poker GameEngine's design: in-place
+ * mutated state and a single getState() accessor. There are no bots — every
+ * occupied seat belongs to the hero, and all seats share one bankroll.
  */
 export class BlackjackEngine {
   private state: BlackjackGameState;
 
-  constructor(seatConfigs: SeatConfig[], heroStartingBankroll: number, rulesOverride: Partial<BlackjackRules> = {}) {
+  constructor(heroStartingBankroll: number, rulesOverride: Partial<BlackjackRules> = {}) {
     const rules: BlackjackRules = { ...DEFAULT_RULES, ...rulesOverride };
     const shoe = createShoe(rules.numDecks);
 
-    const seats: SeatState[] = seatConfigs.map((cfg) => ({
-      seat: cfg.seat,
-      occupant: cfg.occupant,
-      name: cfg.name,
-      boxCount: cfg.occupant === 'HERO' ? cfg.boxCount : 1,
-      bankroll: cfg.occupant === 'HERO' ? heroStartingBankroll : cfg.occupant === 'BOT' ? BOT_BANKROLL : 0,
+    const seats: SeatState[] = Array.from({ length: SEAT_COUNT }, (_, i) => ({
+      seat: i,
+      occupant: 'EMPTY',
+      name: '',
       boxes: [],
     }));
 
@@ -51,6 +46,7 @@ export class BlackjackEngine {
       activeBoxId: null,
       roundNumber: 0,
       needsReshuffle: false,
+      heroBankroll: heroStartingBankroll,
     };
   }
 
@@ -59,12 +55,43 @@ export class BlackjackEngine {
   }
 
   // ---------------------------------------------------------------------
+  // Seating
+  // ---------------------------------------------------------------------
+
+  claimSeat(seatIndex: number, name: string): void {
+    if (this.state.phase !== BlackjackPhase.BETTING) throw new Error('Puoi sederti solo mentre si punta');
+    const seat = this.state.seats.find((s) => s.seat === seatIndex);
+    if (!seat) throw new Error('Postazione inesistente');
+    if (seat.occupant !== 'EMPTY') throw new Error('Postazione già occupata');
+    seat.occupant = 'HERO';
+    seat.name = name;
+  }
+
+  leaveSeat(seatIndex: number): void {
+    if (this.state.phase !== BlackjackPhase.BETTING) throw new Error('Non puoi alzarti a mano in corso');
+    const seat = this.state.seats.find((s) => s.seat === seatIndex);
+    if (!seat) throw new Error('Postazione inesistente');
+    seat.occupant = 'EMPTY';
+    seat.name = '';
+    seat.boxes = [];
+  }
+
+  // ---------------------------------------------------------------------
   // Betting & dealing
   // ---------------------------------------------------------------------
 
-  /** Places bets for every HERO box (one per configured box slot) and auto-bets for bots, then deals the round. */
-  startRound(heroBets: BetInput[]): void {
+  /** Places the same bet amount on every seat the hero occupies, then deals the round. */
+  startRound(betAmount: number): void {
     if (this.state.phase !== BlackjackPhase.BETTING) throw new Error('Not in betting phase');
+
+    const occupiedSeats = this.state.seats.filter((s) => s.occupant === 'HERO');
+    if (occupiedSeats.length === 0) throw new Error('Occupa almeno una postazione prima di distribuire');
+    if (betAmount < this.state.rules.minBet || betAmount > this.state.rules.maxBet) {
+      throw new Error(`Puntata ${betAmount} fuori dai limiti del tavolo (${this.state.rules.minBet}-${this.state.rules.maxBet})`);
+    }
+    if (betAmount * occupiedSeats.length > this.state.heroBankroll) {
+      throw new Error('Saldo insufficiente per coprire la puntata su tutte le postazioni');
+    }
 
     if (this.state.needsReshuffle) {
       this.state.shoe = createShoe(this.state.rules.numDecks);
@@ -77,26 +104,9 @@ export class BlackjackEngine {
 
     for (const seat of this.state.seats) {
       seat.boxes = [];
-      if (seat.occupant === 'EMPTY') continue;
-
-      if (seat.occupant === 'HERO') {
-        const seatBets = heroBets.filter((b) => b.seat === seat.seat).sort((a, b) => a.boxIndex - b.boxIndex);
-        if (seatBets.length !== seat.boxCount) {
-          throw new Error(`Expected ${seat.boxCount} bet(s) for seat ${seat.seat}, got ${seatBets.length}`);
-        }
-        for (const bet of seatBets) {
-          if (bet.amount < this.state.rules.minBet || bet.amount > this.state.rules.maxBet) {
-            throw new Error(`Bet ${bet.amount} outside table limits (${this.state.rules.minBet}-${this.state.rules.maxBet})`);
-          }
-          if (bet.amount > seat.bankroll) throw new Error(`Seat ${seat.seat} cannot cover a bet of ${bet.amount}`);
-          seat.bankroll -= bet.amount;
-          seat.boxes.push(this.createBox(seat.seat, bet.boxIndex, bet.amount));
-        }
-      } else {
-        const amount = this.chooseBotBet(seat);
-        seat.bankroll -= amount;
-        seat.boxes.push(this.createBox(seat.seat, 0, amount));
-      }
+      if (seat.occupant !== 'HERO') continue;
+      this.state.heroBankroll -= betAmount;
+      seat.boxes.push(this.createBox(seat.seat, 0, betAmount));
     }
 
     // Standard casino deal order: one card to every box then the dealer, twice.
@@ -153,8 +163,8 @@ export class BlackjackEngine {
 
     if (takeInsurance) {
       const insuranceAmount = Math.floor(box.bet / 2);
-      if (insuranceAmount > seat.bankroll) throw new Error('Insufficient bankroll for insurance');
-      seat.bankroll -= insuranceAmount;
+      if (insuranceAmount > this.state.heroBankroll) throw new Error('Insufficient bankroll for insurance');
+      this.state.heroBankroll -= insuranceAmount;
       box.insuranceBet = insuranceAmount;
     }
 
@@ -177,15 +187,15 @@ export class BlackjackEngine {
 
   getLegalActions(boxId: string): LegalBoxActions | null {
     if (this.state.phase !== BlackjackPhase.PLAYER_TURNS || this.state.activeBoxId !== boxId) return null;
-    const { seat, box } = this.findBoxOrThrow(boxId);
+    const { box } = this.findBoxOrThrow(boxId);
 
     const actions: BoxAction[] = ['HIT', 'STAND'];
     const isFirstDecision = box.cards.length === 2;
 
-    if (isFirstDecision && seat.bankroll >= box.bet && (!box.isFromSplit || this.state.rules.doubleAfterSplit)) {
+    if (isFirstDecision && this.state.heroBankroll >= box.bet && (!box.isFromSplit || this.state.rules.doubleAfterSplit)) {
       actions.push('DOUBLE');
     }
-    if (isFirstDecision && isPair(box.cards) && seat.bankroll >= box.bet && box.splitDepth < this.state.rules.maxSplits) {
+    if (isFirstDecision && isPair(box.cards) && this.state.heroBankroll >= box.bet && box.splitDepth < this.state.rules.maxSplits) {
       actions.push('SPLIT');
     }
     if (isFirstDecision && !box.isFromSplit && this.state.rules.lateSurrender) {
@@ -224,8 +234,8 @@ export class BlackjackEngine {
       }
 
       case 'DOUBLE': {
-        if (seat.bankroll < box.bet) throw new Error('Insufficient bankroll to double');
-        seat.bankroll -= box.bet;
+        if (this.state.heroBankroll < box.bet) throw new Error('Insufficient bankroll to double');
+        this.state.heroBankroll -= box.bet;
         box.bet *= 2;
         box.isDoubled = true;
         box.cards.push(this.drawCard());
@@ -243,11 +253,11 @@ export class BlackjackEngine {
 
       case 'SPLIT': {
         if (!isPair(box.cards)) throw new Error('Cannot split a non-pair');
-        if (seat.bankroll < box.bet) throw new Error('Insufficient bankroll to split');
+        if (this.state.heroBankroll < box.bet) throw new Error('Insufficient bankroll to split');
 
         const isAcesSplit = box.cards[0][0] === 'A';
         const secondCard = box.cards.pop()!;
-        seat.bankroll -= box.bet;
+        this.state.heroBankroll -= box.bet;
 
         const newBoxIndex = this.nextBoxIndexForSeat(seat);
         const newBox: BoxState = {
@@ -295,7 +305,7 @@ export class BlackjackEngine {
         box.isResolved = true;
         box.result = 'SURRENDER';
         box.payout = -box.bet / 2 - box.insuranceBet;
-        seat.bankroll += box.bet / 2;
+        this.state.heroBankroll += box.bet / 2;
         shouldAdvance = true;
         break;
       }
@@ -349,14 +359,14 @@ export class BlackjackEngine {
         if (dealerValue.isBust || boxValue.total > dealerValue.total) {
           box.result = 'WIN';
           box.payout = box.bet - box.insuranceBet;
-          seat.bankroll += box.bet * 2;
+          this.state.heroBankroll += box.bet * 2;
         } else if (boxValue.total < dealerValue.total) {
           box.result = 'LOSE';
           box.payout = -box.bet - box.insuranceBet;
         } else {
           box.result = 'PUSH';
           box.payout = -box.insuranceBet;
-          seat.bankroll += box.bet;
+          this.state.heroBankroll += box.bet;
         }
 
         box.isResolved = true;
@@ -375,12 +385,12 @@ export class BlackjackEngine {
         let payout = 0;
 
         if (box.insuranceBet > 0) {
-          seat.bankroll += box.insuranceBet * 3; // stake back + 2:1 profit
+          this.state.heroBankroll += box.insuranceBet * 3; // stake back + 2:1 profit
           payout += box.insuranceBet * 2;
         }
 
         if (box.isBlackjack) {
-          seat.bankroll += box.bet; // push: original bet returned
+          this.state.heroBankroll += box.bet; // push: original bet returned
           box.result = 'PUSH';
         } else {
           box.result = 'LOSE';
@@ -405,7 +415,7 @@ export class BlackjackEngine {
           box.result = 'BLACKJACK';
           const winnings = box.bet * this.state.rules.blackjackPayout;
           box.payout = winnings - box.insuranceBet;
-          seat.bankroll += box.bet + winnings;
+          this.state.heroBankroll += box.bet + winnings;
         }
       }
     }
@@ -445,12 +455,6 @@ export class BlackjackEngine {
       result: null,
       payout: 0,
     };
-  }
-
-  private chooseBotBet(seat: SeatState): number {
-    const { minBet, maxBet } = this.state.rules;
-    const raw = minBet * (1 + Math.floor(Math.random() * 4));
-    return Math.min(raw, maxBet, seat.bankroll);
   }
 
   private nextBoxIndexForSeat(seat: SeatState): number {

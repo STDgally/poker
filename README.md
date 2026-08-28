@@ -494,3 +494,41 @@ configurate. A fine mano appare un banner "ATTENDI LA PROSSIMA MANO" in stile ca
 Verificato in browser: layout a ventaglio corretto con le 6 postazioni (incluse quelle vuote)
 ben distribuite lungo la curva senza sovrapposizioni, gettoni e testo del banco resi
 correttamente, banner di fine mano visibile con la mano del banco rivelata sotto.
+
+## Blackjack: tavolo reale multi-postazione (senza bot)
+
+Riprogettazione del tavolo blackjack per assomigliare a un vero tavolo online multi-seat (tipo
+888casino) invece che a un tavolo con bot da configurare:
+
+- **Niente più bot**: `SeatOccupant` ora è solo `'HERO' | 'EMPTY'`, `BlackjackEngine` non ha più
+  `chooseBotBet`/`BOT_BANKROLL`, e lo store non deve più simulare "pensieri" per avversari che
+  non esistono (rimossa `advanceBots` e la sua ricorsione a `setTimeout`, sostituita da una
+  `syncAfterEngineChange` che si limita a sincronizzare lo snapshot e suonare "tocca a te").
+- **Solo 3 postazioni, sempre visibili**: niente più pagina di configurazione con selettori
+  "Vuota/Bot/Tu" — si entra al tavolo con un solo campo (stack iniziale) e si vede subito il
+  feltro con 3 posti cliccabili.
+- **Sedersi/alzarsi con un clic**: un posto libero mostra un cerchio tratteggiato "+ Siediti";
+  cliccandolo lo si occupa (fino a 3 postazioni = fino a 3 mani in parallelo). "Alzati" libera
+  la postazione, permesso solo durante la fase di puntata.
+- **Saldo unico condiviso**: il bankroll non è più per-postazione (`seat.bankroll`) ma un unico
+  `heroBankroll` a livello di tavolo — sedersi a più postazioni non moltiplica i fondi, la
+  puntata totale (puntata × postazioni occupate) viene verificata contro questo unico saldo
+  prima di distribuire.
+- **Puntata identica su ogni postazione**: un solo importo (`pendingBet`) si applica a tutte le
+  postazioni occupate, coerente con la richiesta di poter aprire più mani con la stessa puntata.
+- **Fiches cliccabili come in un casinò online**: righe di gettoni (5/25/100/500) che si
+  aggiungono alla puntata con un clic, più "Pulisci puntata" per azzerarla — al posto dei vecchi
+  pulsanti +/- per singola box.
+- **Timer di puntata da 20 secondi**: appare un conto alla rovescia (`bettingSecondsLeft` nello
+  store, un `setInterval` avviato a ogni nuova fase di puntata) che, a zero, distribuisce
+  automaticamente le carte se c'è almeno una puntata valida su una postazione occupata —
+  altrimenti si riarma per altri 20 secondi senza forzare una mano vuota.
+- **Pulsante "Dai le carte subito"**: distribuisce immediatamente, bypassando il timer.
+
+Verificato in browser (Playwright): seduti a 2 postazioni, puntata di 50 su ciascuna tramite due
+click sulla fiche da 25, saldo scende correttamente da 1.000 a 900 (non a 800, cioè il saldo
+condiviso non viene addebitato due volte); a fine mano il saldo torna a combaciare con la somma
+dei payout delle due box; una postazione lasciata durante la puntata torna cliccabile mentre
+l'altra mantiene la puntata precedente. Il timer di 20 secondi è stato testato lasciandolo
+scadere naturalmente: allo scadere ha distribuito da solo le carte con la puntata impostata,
+risolvendo correttamente un blackjack naturale del giocatore.

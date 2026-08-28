@@ -6,7 +6,7 @@ export type Suit = 's' | 'h' | 'd' | 'c';
 /** Two-character card code, e.g. "Ah", "Td", "9c" — same convention as the poker engine. */
 export type Card = `${Rank}${Suit}`;
 
-export type SeatOccupant = 'HERO' | 'BOT' | 'EMPTY';
+export type SeatOccupant = 'HERO' | 'EMPTY';
 
 export type BoxAction = 'HIT' | 'STAND' | 'DOUBLE' | 'SPLIT' | 'SURRENDER';
 
@@ -74,20 +74,10 @@ export interface BoxState {
   payout: number;
 }
 
-export interface SeatConfig {
-  seat: number;
-  occupant: SeatOccupant;
-  name: string;
-  /** Number of simultaneous boxes to play at this seat (hero: 1-3; bots always 1). */
-  boxCount: number;
-}
-
 export interface SeatState {
   seat: number;
   occupant: SeatOccupant;
   name: string;
-  boxCount: number;
-  bankroll: number;
   boxes: BoxState[];
 }
 
@@ -106,6 +96,8 @@ export interface BlackjackGameState {
   activeBoxId: string | null;
   roundNumber: number;
   needsReshuffle: boolean;
+  /** Single shared balance for every seat the hero occupies — sitting at more seats never multiplies funds. */
+  heroBankroll: number;
 }
 
 export interface HandValue {
@@ -121,8 +113,3 @@ export interface LegalBoxActions {
   maxBet: number;
 }
 
-export interface BetInput {
-  seat: number;
-  boxIndex: number;
-  amount: number;
-}

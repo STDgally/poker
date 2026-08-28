@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { BlackjackEngine } from '@/lib/blackjack/BlackjackEngine';
 import { getBasicStrategyAction, shouldTakeInsurance } from '@/lib/blackjack/basicStrategy';
 import { computeHandValue } from '@/lib/blackjack/handValue';
-import { BetInput, BlackjackGameState, BlackjackPhase, BlackjackRules, BoxAction, SeatConfig } from '@/lib/blackjack/types';
+import { BlackjackGameState, BlackjackPhase, BlackjackRules, BoxAction } from '@/lib/blackjack/types';
 import { playCheckSound, playChipSound, playFoldSound, playRaiseSound, playWinSound, playYourTurnSound } from '@/lib/sound/sounds';
 import {
   BlackjackActionLogPayload,
@@ -13,7 +13,6 @@ import {
   CreateBlackjackSessionResponse,
   RecordBlackjackRoundPayload,
 } from '@/lib/blackjack/persistenceTypes';
-import { useSettingsStore } from '@/store/settingsStore';
 
 function snapshot(engine: BlackjackEngine): BlackjackGameState {
   const s = engine.getState();
@@ -63,22 +62,24 @@ function playActionSound(action: BoxAction) {
   }
 }
 
-/** Scaled around the user's configured bot-speed setting (Impostazioni), shared with poker. */
-function randomThinkDelay(): number {
-  const settingBase = useSettingsStore.getState().botDelayMs;
-  return settingBase * (0.5 + Math.random());
-}
+/** How long the betting window stays open before the dealer deals automatically, if there's at least one bet down. */
+const BETTING_WINDOW_SECONDS = 20;
 
 interface BlackjackStore {
   engine: BlackjackEngine | null;
   gameState: BlackjackGameState | null;
-  isBotThinking: boolean;
   log: string[];
-  pendingBets: Record<string, number>;
+  /** Single bet amount, applied identically to every seat the hero occupies. */
+  pendingBet: number;
+  /** Countdown shown during the betting phase; null when not counting down. */
+  bettingSecondsLeft: number | null;
 
-  initTable: (seatConfigs: SeatConfig[], heroStartingBankroll: number, rulesOverride?: Partial<BlackjackRules>) => void;
+  initTable: (heroStartingBankroll: number, rulesOverride?: Partial<BlackjackRules>) => void;
   resetTable: () => void;
-  setPendingBet: (seat: number, boxIndex: number, amount: number) => void;
+  claimSeat: (seat: number) => void;
+  leaveSeat: (seat: number) => void;
+  addChip: (value: number) => void;
+  clearBet: () => void;
   dealRound: () => void;
   humanInsuranceDecision: (boxId: string, take: boolean) => void;
   humanAction: (boxId: string, action: BoxAction) => void;
@@ -103,11 +104,6 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
     if (engine) set({ gameState: snapshot(engine) });
   }
 
-  function isHeroBox(boxSeat: number): boolean {
-    const state = get().engine?.getState();
-    return state?.seats.find((s) => s.seat === boxSeat)?.occupant === 'HERO';
-  }
-
   async function ensureSession(): Promise<string | null> {
     const engine = get().engine;
     if (!engine) return null;
@@ -120,7 +116,7 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
         blackjackPayout: rules.blackjackPayout,
         minBet: rules.minBet,
         maxBet: rules.maxBet,
-        startStack: engine.getState().seats.find((s) => s.occupant === 'HERO')?.bankroll ?? 0,
+        startStack: engine.getState().heroBankroll,
       };
       sessionCreationPromise = fetch('/api/blackjack/sessions', {
         method: 'POST',
@@ -192,15 +188,52 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
     }
   }
 
-  /** Drives every bot decision (insurance + play) automatically, with a
-   * short "thinking" delay, until it's the human's turn or the round ends. */
-  function advanceBots() {
+  // The 20-second betting-window countdown. A plain module-closured interval
+  // handle (like the session bookkeeping above) since it drives store state
+  // rather than being derived from it.
+  let bettingIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  function stopBettingTimer() {
+    if (bettingIntervalId !== null) {
+      clearInterval(bettingIntervalId);
+      bettingIntervalId = null;
+    }
+    set({ bettingSecondsLeft: null });
+  }
+
+  function startBettingTimer() {
+    stopBettingTimer();
+    set({ bettingSecondsLeft: BETTING_WINDOW_SECONDS });
+    bettingIntervalId = setInterval(() => {
+      const secondsLeft = get().bettingSecondsLeft;
+      if (secondsLeft === null) return;
+      const next = secondsLeft - 1;
+      if (next > 0) {
+        set({ bettingSecondsLeft: next });
+        return;
+      }
+      const engine = get().engine;
+      const state = engine?.getState();
+      const hasValidBet = !!state && state.seats.some((s) => s.occupant === 'HERO') && get().pendingBet >= state.rules.minBet;
+      if (engine && hasValidBet) {
+        stopBettingTimer();
+        get().dealRound();
+      } else {
+        // Nobody's seated, or no chips placed yet — keep offering fresh 20-second windows rather than forcing an empty deal.
+        set({ bettingSecondsLeft: BETTING_WINDOW_SECONDS });
+      }
+    }, 1000);
+  }
+
+  /** Syncs the reactive snapshot after any engine mutation, and reacts to phase changes: a
+   * "your turn" cue when a new box becomes active, or round-end bookkeeping (sound + persistence). */
+  function syncAfterEngineChange() {
     const engine = get().engine;
     if (!engine) return;
+    syncState();
     const state = engine.getState();
 
     if (state.phase === BlackjackPhase.ROUND_COMPLETE) {
-      syncState();
       const heroWon = state.seats.some((s) => s.occupant === 'HERO' && s.boxes.some((b) => b.payout > 0));
       if (heroWon) playWinSound();
       if (!roundPersisted) {
@@ -210,108 +243,86 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
       return;
     }
 
-    if (state.phase === BlackjackPhase.INSURANCE) {
-      const boxId = state.activeBoxId;
-      if (!boxId) { syncState(); return; }
-      const box = state.seats.flatMap((s) => s.boxes).find((b) => b.id === boxId)!;
-      if (isHeroBox(box.seat)) {
-        syncState();
-        playYourTurnSound();
-        return;
-      }
-      syncState();
-      set({ isBotThinking: true });
-      setTimeout(() => {
-        engine.applyInsuranceDecision(boxId, shouldTakeInsurance());
-        set({ isBotThinking: false });
-        advanceBots();
-      }, randomThinkDelay());
-      return;
+    if (state.activeBoxId && (state.phase === BlackjackPhase.INSURANCE || state.phase === BlackjackPhase.PLAYER_TURNS)) {
+      playYourTurnSound();
     }
-
-    if (state.phase === BlackjackPhase.PLAYER_TURNS) {
-      const boxId = state.activeBoxId;
-      if (!boxId) { syncState(); return; }
-      const box = state.seats.flatMap((s) => s.boxes).find((b) => b.id === boxId)!;
-      const seat = state.seats.find((s) => s.seat === box.seat)!;
-
-      if (seat.occupant === 'HERO') {
-        syncState();
-        playYourTurnSound();
-        return;
-      }
-
-      syncState();
-      set({ isBotThinking: true });
-      const legal = engine.getLegalActions(boxId)!;
-      const rec = getBasicStrategyAction(box.cards, state.dealer.cards[0], legal.actions);
-      setTimeout(() => {
-        engine.applyAction(boxId, rec.action);
-        pushLog(describeAction(seat.name, rec.action));
-        playActionSound(rec.action);
-        set({ isBotThinking: false });
-        advanceBots();
-      }, randomThinkDelay());
-      return;
-    }
-
-    syncState();
   }
 
   return {
     engine: null,
     gameState: null,
-    isBotThinking: false,
     log: [],
-    pendingBets: {},
+    pendingBet: 0,
+    bettingSecondsLeft: null,
 
-    initTable: (seatConfigs, heroStartingBankroll, rulesOverride) => {
-      const engine = new BlackjackEngine(seatConfigs, heroStartingBankroll, rulesOverride);
-      const state = engine.getState();
-      const pendingBets: Record<string, number> = {};
-      for (const seat of state.seats) {
-        if (seat.occupant !== 'HERO') continue;
-        for (let i = 0; i < seat.boxCount; i++) {
-          pendingBets[`${seat.seat}-${i}`] = state.rules.minBet;
-        }
-      }
+    initTable: (heroStartingBankroll, rulesOverride) => {
+      const engine = new BlackjackEngine(heroStartingBankroll, rulesOverride);
       sessionId = null;
       sessionCreationPromise = null;
-      set({ engine, gameState: snapshot(engine), pendingBets, log: [], isBotThinking: false });
+      set({ engine, gameState: snapshot(engine), pendingBet: 0, log: [] });
+      startBettingTimer();
     },
 
     resetTable: () => {
+      stopBettingTimer();
       sessionId = null;
       sessionCreationPromise = null;
-      set({ engine: null, gameState: null, pendingBets: {}, log: [], isBotThinking: false });
+      set({ engine: null, gameState: null, pendingBet: 0, log: [] });
     },
 
-    setPendingBet: (seat, boxIndex, amount) => {
-      set((state) => ({ pendingBets: { ...state.pendingBets, [`${seat}-${boxIndex}`]: amount } }));
+    claimSeat: (seat) => {
+      const engine = get().engine;
+      if (!engine) return;
+      const heroCount = engine.getState().seats.filter((s) => s.occupant === 'HERO').length;
+      try {
+        engine.claimSeat(seat, heroCount === 0 ? 'Tu' : `Tu (${heroCount + 1})`);
+        syncState();
+      } catch (err) {
+        pushLog(err instanceof Error ? err.message : 'Impossibile sedersi a questa postazione');
+      }
+    },
+
+    leaveSeat: (seat) => {
+      const engine = get().engine;
+      if (!engine) return;
+      try {
+        engine.leaveSeat(seat);
+        syncState();
+      } catch (err) {
+        pushLog(err instanceof Error ? err.message : 'Impossibile alzarsi da questa postazione');
+      }
+    },
+
+    addChip: (value) => {
+      set((state) => {
+        const maxBet = state.engine?.getState().rules.maxBet ?? Infinity;
+        return { pendingBet: Math.min(maxBet, state.pendingBet + value) };
+      });
+    },
+
+    clearBet: () => {
+      set({ pendingBet: 0 });
     },
 
     dealRound: () => {
       const engine = get().engine;
       if (!engine) return;
       void ensureSession();
-      const state = engine.getState();
-      const pendingBets = get().pendingBets;
+      stopBettingTimer();
 
-      const heroBets: BetInput[] = [];
-      for (const seat of state.seats) {
-        if (seat.occupant !== 'HERO') continue;
-        for (let i = 0; i < seat.boxCount; i++) {
-          heroBets.push({ seat: seat.seat, boxIndex: i, amount: pendingBets[`${seat.seat}-${i}`] ?? state.rules.minBet });
-        }
+      try {
+        engine.startRound(get().pendingBet);
+      } catch (err) {
+        pushLog(err instanceof Error ? err.message : 'Impossibile distribuire le carte');
+        startBettingTimer();
+        return;
       }
 
-      engine.startRound(heroBets);
       currentRoundActions = [];
       actionSequence = 0;
       roundPersisted = false;
       pushLog(`--- Mano #${engine.getState().roundNumber} ---`);
-      syncState();
-      advanceBots();
+      syncAfterEngineChange();
     },
 
     humanInsuranceDecision: (boxId, take) => {
@@ -332,7 +343,7 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
 
       engine.applyInsuranceDecision(boxId, take);
       pushLog(take ? "Tu prendi l'assicurazione" : "Tu rifiuti l'assicurazione");
-      advanceBots();
+      syncAfterEngineChange();
     },
 
     humanAction: (boxId, action) => {
@@ -356,7 +367,7 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
       engine.applyAction(boxId, action);
       pushLog(describeAction('Tu', action));
       playActionSound(action);
-      advanceBots();
+      syncAfterEngineChange();
     },
 
     nextRound: () => {
@@ -364,6 +375,7 @@ export const useBlackjackStore = create<BlackjackStore>((set, get) => {
       if (!engine) return;
       engine.prepareNextRound();
       syncState();
+      startBettingTimer();
     },
   };
 });

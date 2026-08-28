@@ -4,21 +4,20 @@ import { useBlackjackStore } from '@/store/blackjackStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { NavBar } from '@/components/NavBar';
 import { BlackjackPhase } from '@/lib/blackjack/types';
+import { formatChips } from '@/lib/format';
 import { SetupPanel } from './SetupPanel';
 import { DealerHand } from './DealerHand';
 import { SeatBoxes } from './SeatBoxes';
+import { SeatSlot } from './SeatSlot';
 import { BettingControls } from './BettingControls';
 import { ActionPanel } from './ActionPanel';
 
-// Six seats arranged along the felt's curved bottom rail, like a real casino
-// blackjack table fanned out below the dealer.
+// Three seats arranged along the felt's curved bottom rail, like a real
+// casino blackjack table fanned out below the dealer.
 const SEAT_ARC_POSITIONS = [
-  { top: '82%', left: '6%' },
-  { top: '70%', left: '22%' },
-  { top: '63%', left: '38%' },
-  { top: '63%', left: '62%' },
-  { top: '70%', left: '78%' },
-  { top: '82%', left: '94%' },
+  { top: '80%', left: '18%' },
+  { top: '88%', left: '50%' },
+  { top: '80%', left: '82%' },
 ];
 
 export function BlackjackTable() {
@@ -36,6 +35,10 @@ export function BlackjackTable() {
         <SetupPanel />
       ) : (
         <>
+          <div className="text-sm text-slate-300">
+            Saldo: <span className="font-mono font-semibold text-amber-300">{formatChips(gameState.heroBankroll)}</span>
+          </div>
+
           <div
             className="relative aspect-[16/11] w-full max-w-4xl border-8 border-black/40 shadow-2xl"
             style={{ backgroundColor: feltColor, borderRadius: '4% 4% 50% 50% / 4% 4% 100% 100%' }}
@@ -57,7 +60,11 @@ export function BlackjackTable() {
               const pos = SEAT_ARC_POSITIONS[seat.seat] ?? SEAT_ARC_POSITIONS[0];
               return (
                 <div key={seat.seat} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ top: pos.top, left: pos.left }}>
-                  <SeatBoxes seat={seat} activeBoxId={gameState.activeBoxId} />
+                  {gameState.phase === BlackjackPhase.BETTING ? (
+                    <SeatSlot seat={seat} />
+                  ) : (
+                    <SeatBoxes seat={seat} activeBoxId={gameState.activeBoxId} />
+                  )}
                 </div>
               );
             })}
@@ -84,7 +91,7 @@ export function BlackjackTable() {
           )}
 
           <button onClick={resetTable} className="text-xs text-slate-500 hover:text-slate-300">
-            Lascia il tavolo (riconfigura postazioni)
+            Lascia il tavolo
           </button>
 
           <div className="w-full max-w-md rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
