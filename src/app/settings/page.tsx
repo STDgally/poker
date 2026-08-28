@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { FELT_COLOR_PRESETS, useSettingsStore } from '@/store/settingsStore';
+import { NavBar } from '@/components/NavBar';
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -24,12 +24,7 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-6 text-slate-100">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Impostazioni</h1>
-        <Link href="/" className="text-sm text-sky-400 hover:text-sky-300">
-          &larr; Torna al tavolo
-        </Link>
-      </div>
+      <NavBar title="Impostazioni" />
 
       <SectionCard title="Audio">
         <label className="flex cursor-pointer items-center justify-between">

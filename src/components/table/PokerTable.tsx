@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useTableStore } from '@/store/tableStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { NavBar } from '@/components/NavBar';
 import { PlayerSeat } from './PlayerSeat';
 import { PotDisplay } from './PotDisplay';
 import { ActionControls } from './ActionControls';
@@ -35,17 +35,7 @@ export function PokerTable() {
 
   return (
     <div className="flex min-h-screen flex-col items-center gap-6 bg-slate-950 p-6 text-slate-100">
-      <div className="mb-4 flex w-full max-w-4xl items-center justify-between">
-        <h1 className="text-2xl font-bold">Poker Simulator &amp; Analytics — Tavolo 6-max</h1>
-        <div className="flex items-center gap-4 text-sm">
-          <Link href="/settings" className="text-sky-400 hover:text-sky-300">
-            Impostazioni
-          </Link>
-          <Link href="/dashboard" className="text-sky-400 hover:text-sky-300">
-            Dashboard &rarr;
-          </Link>
-        </div>
-      </div>
+      <NavBar title="Poker — Tavolo 6-max" />
 
       <div
         className="relative mt-8 aspect-[16/9] w-full max-w-4xl rounded-[50%] border-8 border-black/40 shadow-2xl"

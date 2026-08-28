@@ -291,7 +291,9 @@ Roadmap in step verificabili, come per il poker:
   `BlackjackBoxResult`, `BlackjackActionLog`).
 - **B2 (completato):** motore strategia base (le mosse "da libro"), usato sia come hint per te
   che come cervello dei bot.
-- B3: tavolo `/blackjack` con 6 postazioni, multi-box, bot, area scommesse — da fare.
+- **B3 (completato):** tavolo `/blackjack` con 6 postazioni configurabili, multi-box per te
+  (anche su più postazioni contemporaneamente), bot, area scommesse, hint di strategia in tempo
+  reale.
 - B4: statistiche persistite (aderenza alla strategia, win rate) + dashboard — da fare.
 - B5: trainer conteggio carte (più sistemi, livelli di difficoltà) — da fare.
 - B6: impostazioni estese (regole banco) + accessibilità (tastiera, screen reader, alto
@@ -347,3 +349,32 @@ usando la strategia reale su tutti i seat (umano e bot), che converge a un vanta
 dello **0,255%** — coerente con il valore teorico atteso per queste regole (6 mazzi, H17,
 blackjack 3:2, raddoppio dopo split, resa tardiva), a conferma che il motore si comporta
 matematicamente come un vero tavolo di blackjack.
+
+### Tavolo `/blackjack` (Step B3)
+
+`npm run dev` e vai su `/blackjack`. All'apertura, un pannello di configurazione ti fa scegliere
+per ciascuna delle 6 postazioni se lasciarla vuota, darla a un bot, o occuparla tu — e per ogni
+tua postazione quanti box giocare (1-3), realizzando sia il "multi-box classico" che il controllo
+di più postazioni contemporaneamente. Poi imposti lo stack iniziale e ti siedi.
+
+`src/store/blackjackStore.ts` avvolge `BlackjackEngine` con lo stesso pattern del tavolo poker:
+snapshot immutabile dopo ogni mutazione, bot pilotati automaticamente (con delay realistico e
+indicatore "sta pensando") usando `getBasicStrategyAction`, suoni per ogni azione. A differenza
+del poker, in blackjack le carte di tutti sono sempre scoperte (solo la seconda carta del banco
+resta coperta finché non tocca a lui) — riflette una regola reale del gioco, non un limite della UI.
+
+`src/components/blackjack/`: `SetupPanel` (configurazione tavolo), `DealerHand`, `SeatBoxes`
+(carte/puntata/totale/esito per ogni box, con evidenziazione del box attivo), `BettingControls`
+(puntate pre-mano per ogni box tuo), `ActionPanel` (Hit/Stand/Double/Split/Surrender — con il
+suggerimento "mossa da libro" dello Step B2 sempre visibile e il pulsante consigliato evidenziato,
+più il prompt di assicurazione quando il banco mostra un Asso).
+
+Ho anche estratto un componente `NavBar` condiviso (Poker / Blackjack / Dashboard / Impostazioni)
+usato ora da tutte e quattro le pagine, al posto dei link duplicati in ciascuna.
+
+**Verificato in un browser reale con Playwright**, non solo build/typecheck: partita giocata dalla
+configurazione fino alla risoluzione della mano (inclusi hit multipli, stand, split, raddoppio),
+e in una sessione più lunga anche il prompt di assicurazione quando il banco ha pescato un Asso.
+Questo ha fatto emergere un **bug di layout reale**: un box con molte carte (dopo diversi hit)
+si allargava e si sovrapponeva visivamente al box del vicino nella griglia — corretto facendo
+andare a capo le carte oltre un certo numero invece di farle crescere in orizzontale all'infinito.

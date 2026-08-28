@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getUserStats } from '@/lib/analytics';
+import { NavBar } from '@/components/NavBar';
 import { BankrollChart } from '@/components/dashboard/BankrollChart';
 import { StatsTable } from '@/components/dashboard/StatsTable';
 
@@ -11,12 +12,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 p-6 text-slate-100">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Dashboard &amp; Analytics</h1>
-        <Link href="/" className="text-sm text-sky-400 hover:text-sky-300">
-          &larr; Torna al tavolo
-        </Link>
-      </div>
+      <NavBar title="Dashboard & Analytics" />
 
       {stats.handsPlayed === 0 ? (
         <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-8 text-center text-slate-400">
