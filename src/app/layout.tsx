@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { SettingsHydrator } from '@/components/SettingsHydrator';
 
 export const metadata: Metadata = {
   title: 'Poker Simulator & Analytics',
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-slate-950 text-slate-100">{children}</body>
+      <body className="bg-slate-950 text-slate-100">
+        <SettingsHydrator />
+        {children}
+      </body>
     </html>
   );
 }

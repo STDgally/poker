@@ -8,6 +8,7 @@ import { decideBotAction } from '@/lib/bots/botPolicy';
 import { BotProfileConfig } from '@/lib/bots/types';
 import { TAG_PROFILE, CALLING_STATION_PROFILE } from '@/lib/bots/profiles';
 import { CreateSessionPayload, CreateSessionResponse, HandActionPayload, RecordHandPayload } from '@/lib/hands/types';
+import { playCheckSound, playChipSound, playFoldSound, playRaiseSound, playWinSound, playYourTurnSound } from '@/lib/sound/sounds';
 
 export const HERO_ID = 'hero';
 const STARTING_STACK = 1000;
@@ -178,6 +179,26 @@ export const useTableStore = create<TableStore>((set, get) => {
     const potAfter = engine.getDisplayPot();
     logAction(street, player.seat, player.isBot ? 'BOT' : 'HUMAN', player.name, action, loggedAmount, potAfter);
     pushLog(describeAction(player.isBot ? player.name : 'Tu', action));
+    playActionSound(action);
+  }
+
+  function playActionSound(action: PlayerAction) {
+    switch (action.type) {
+      case PlayerActionType.FOLD:
+        playFoldSound();
+        break;
+      case PlayerActionType.CHECK:
+        playCheckSound();
+        break;
+      case PlayerActionType.CALL:
+        playChipSound();
+        break;
+      case PlayerActionType.BET:
+      case PlayerActionType.RAISE:
+      case PlayerActionType.ALL_IN:
+        playRaiseSound();
+        break;
+    }
   }
 
   async function ensureSession(): Promise<string | null> {
@@ -254,6 +275,7 @@ export const useTableStore = create<TableStore>((set, get) => {
       syncState();
       if (!handPersisted) {
         handPersisted = true;
+        if (state.winners.some((w) => w.playerId === HERO_ID)) playWinSound();
         void persistHand();
       }
       return;
@@ -267,6 +289,7 @@ export const useTableStore = create<TableStore>((set, get) => {
     const actor = state.players.find((p) => p.seat === state.actionOnSeat);
     if (!actor || !actor.isBot) {
       syncState();
+      if (actor?.id === HERO_ID) playYourTurnSound();
       return;
     }
 

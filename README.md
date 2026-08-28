@@ -14,6 +14,9 @@ Prisma + MySQL (persistenza), `pokersolver` (valutazione mani).
 - **STEP 3 (completato):** tavolo React (Zustand + `GameEngine`), HUD bot, controlli umani.
 - **STEP 4 (completato):** persistenza hand history su MySQL via Prisma + dashboard `/dashboard`
   con grafico bankroll e statistiche aggregate (VPIP, PFR, BB/100).
+- **Extra (completato):** controlli di puntata in stile client PokerStars (preset Min/BB/Piatto/
+  Max, stepper, slider), effetti sonori, pagina `/settings` (unità BB/chips, colore tavolo,
+  audio), pannello info in-game con equity/pot odds/outs/range avversari per posizione.
 
 ## Setup ambiente locale
 
@@ -223,3 +226,37 @@ MariaDB in locale, applicato la migration Prisma (`prisma migrate dev`), e con P
 giocato più mani complete dal tavolo verificando via query SQL dirette che `HandHistory` e
 `ActionLog` contenessero i dati corretti (posizione, pot, risultato netto, sequenza di azioni
 per street), e che `/dashboard` mostrasse il grafico e le statistiche coerenti con quei dati.
+
+### Controlli di puntata, suoni, impostazioni e pannello info (Extra)
+
+**Controlli di puntata** (`ActionControls.tsx`) in stile client da tavolo reale: 4 pulsanti
+preimpostati (Min / 3BB o ½ Piatto a seconda dello street / Piatto / Max), stepper `−`/`+` a
+passo di un big blind, slider, e pulsanti Fold / Chiama X / Rilancia a X con l'importo mostrato
+direttamente sul pulsante.
+
+**Suoni** (`src/lib/sound/sounds.ts`): sintetizzati via Web Audio API (oscillatori + rumore
+bianco) invece di file audio esterni — funzionano offline e senza asset da scaricare. Un suono
+diverso per fold, check, call/puntata, rilancio, "tocca a te" e vittoria; disattivabili da
+`/settings`.
+
+**`/settings`**: unità di visualizzazione delle puntate (chips o BB — riflessa ovunque, dai
+pulsanti preimpostati ai pulsanti Fold/Call/Raise), attivazione suoni, visibilità dei range
+avversari nel pannello info, colore del tavolo (persistiti in `localStorage` via lo store Zustand
+`useSettingsStore`, con `skipHydration` + rehydrate post-mount per evitare mismatch di hydration
+SSR come quello risolto nello Step 3).
+
+**Pannello info in-game** (pulsante "i" accanto ai controlli, `InfoPanel.tsx`) mostra, calcolati
+dal vero stato della mano (non placeholder):
+- **La tua equity stimata** — riusa `estimateEquity` (Monte Carlo) già scritto per i bot nello
+  Step 2, contro il numero di avversari ancora in mano;
+- **Pot odds** — % minima di vittoria necessaria per chiamare in pareggio, dato pot e importo da
+  chiamare (`src/lib/game/potOdds.ts`);
+- **I tuoi outs** — carte rimanenti che migliorano la mano del giocatore rispetto al suo hand
+  rank attuale (`src/lib/game/outs.ts`), con stima percentuale via la regola del 4-2;
+- **Range indicativi avversari per posizione** — tabella statica di riferimento (range di
+  apertura tipici 6-max per BTN/CO/MP/UTG/SB/BB, `src/lib/game/positionRanges.ts`): è una guida
+  teorica generica, non una lettura live dei bot specifici al tavolo.
+
+Verificato in browser con Playwright: cambio impostazioni (unità BB, colore tavolo) persistito e
+riflesso al tavolo, pannello info aperto durante una mano reale con equity/pot odds/range
+effettivamente calcolati, click sui preset di puntata e sui pulsanti azione senza errori console.

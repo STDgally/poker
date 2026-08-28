@@ -6,12 +6,7 @@ const config: Config = {
     './src/components/**/*.{ts,tsx}',
   ],
   theme: {
-    extend: {
-      colors: {
-        felt: '#0b4d3a',
-        feltDark: '#083a2b',
-      },
-    },
+    extend: {},
   },
   plugins: [],
 };

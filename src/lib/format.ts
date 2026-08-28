@@ -10,3 +10,11 @@ export function formatChips(amount: number): string {
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${sign}${grouped}`;
 }
+
+/** Formats a chip amount either as raw chips or in big-blind units, per the user's display preference. */
+export function formatBetAmount(chips: number, bigBlind: number, unit: 'BB' | 'CHIPS'): string {
+  if (unit === 'CHIPS' || bigBlind <= 0) return formatChips(chips);
+  const bb = chips / bigBlind;
+  const rounded = Math.round(bb * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}BB`;
+}
