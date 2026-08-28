@@ -11,7 +11,7 @@ Prisma + MySQL (persistenza), `pokersolver` (valutazione mani).
   `GameEngine` (mazzo, blind, turni di puntata, side pot, showdown).
 - **STEP 2 (completato):** profili bot TAG / Calling Station e logica di decisione basata su
   equity (Monte Carlo).
-- STEP 3: componente React del tavolo — da fare.
+- **STEP 3 (completato):** tavolo React (Zustand + `GameEngine`), HUD bot, controlli umani.
 - STEP 4: dashboard `/dashboard` con grafici — da fare.
 
 ## Setup ambiente locale
@@ -104,8 +104,16 @@ src/
       runBot.ts                 # playBotAction(engine, playerId, profile): integra con GameEngine
   types/
     pokersolver.d.ts     # dichiarazione di tipo per pokersolver (non tipizzato upstream)
+  store/
+    tableStore.ts          # Zustand: avvolge GameEngine, guida i bot in automatico, log azioni
+  components/table/
+    PokerTable.tsx          # composizione principale del tavolo (6-max)
+    PlayerSeat.tsx           # seat: carte, stack, dealer button, HUD bot
+    PlayingCard.tsx          # singola carta (fronte/retro/slot vuoto)
+    PotDisplay.tsx           # board + pot centrale
+    ActionControls.tsx      # Fold, Check/Call, slider Raise per l'utente umano
   app/
-    layout.tsx, page.tsx, globals.css   # scaffold Next.js (sostituito dallo Step 3)
+    layout.tsx, page.tsx, globals.css   # rende <PokerTable /> come home page
 ```
 
 ### `GameEngine`: uso di base
@@ -160,3 +168,20 @@ decidere fold/check/call/bet/raise e la dimensione della puntata (frazione del p
 Verificato con simulazioni di centinaia di mani complete (4 bot, fold/call/raise/all-in,
 side pot multipli): nessun errore, conservazione delle chips corretta, e i due profili
 mostrano VPIP nettamente diversi come atteso dall'archetipo.
+
+### Tavolo (Step 3)
+
+`npm run dev` e apri http://localhost:3000: tavolo 6-max con 1 utente umano (seat 0) e 5 bot
+(alternanza TAG/Calling Station). Il bottone "Inizia"/"Nuova mano" avvia una mano; i bot agiscono
+automaticamente (con un piccolo ritardo per leggibilità) finché non tocca all'utente o la mano
+finisce; alla fine le carte dei bot non foldati vengono rivelate insieme al vincitore e alla mano.
+
+Lo store Zustand (`useTableStore`) incapsula un'istanza di `GameEngine` e ne pubblica uno
+snapshot immutabile (`gameState`) ad ogni azione, cosa necessaria perché l'engine muta il proprio
+stato interno in place. L'HUD sotto ogni bot mostra VPIP/PFR **placeholder** fissi (19%/15% per i
+TAG, 58%/3% per i Calling Station) — i valori reali arriveranno allo Step 4 dal database.
+
+Verificato in un browser reale (Playwright, non solo build/typecheck): mano completa dall'avvio
+allo showdown, click su Fold/Call/Raise, e un bug di hydration SSR reale è stato trovato e
+corretto (`toLocaleString('it-IT')` produceva testo diverso lato server rispetto al client per
+via dei dati ICU limitati di Node — sostituito con un formatter manuale in `src/lib/format.ts`).
