@@ -26,6 +26,7 @@ export function PokerTable() {
   const botProfiles = useTableStore((s) => s.botProfiles);
   const startNewHand = useTableStore((s) => s.startNewHand);
   const log = useTableStore((s) => s.log);
+  const isBotActing = useTableStore((s) => s.isBotActing);
   const feltColor = useSettingsStore((s) => s.feltColor);
 
   const orderedPlayers = [...gameState.players].sort((a, b) => a.seat - b.seat);
@@ -53,13 +54,16 @@ export function PokerTable() {
         {orderedPlayers.map((player) => {
           const pos = SEAT_POSITIONS[player.seat] ?? SEAT_POSITIONS[0];
           const cardsVisible = player.id === heroId || (gameState.isHandComplete && !player.isFolded);
+          const isActing = gameState.actionOnSeat === player.seat && !gameState.isHandComplete;
 
           return (
             <div key={player.id} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ top: pos.top, left: pos.left }}>
               <PlayerSeat
                 player={player}
                 isDealer={gameState.dealerSeat === player.seat}
-                isActing={gameState.actionOnSeat === player.seat && !gameState.isHandComplete}
+                isActing={isActing}
+                isHero={player.id === heroId}
+                isThinking={isActing && player.isBot && isBotActing}
                 cardsVisible={cardsVisible}
                 profile={player.isBot ? botProfiles[player.id] : undefined}
               />

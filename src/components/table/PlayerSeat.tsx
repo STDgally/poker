@@ -14,19 +14,22 @@ interface PlayerSeatProps {
   player: PlayerState;
   isDealer: boolean;
   isActing: boolean;
+  isHero: boolean;
+  isThinking: boolean;
   cardsVisible: boolean;
   profile?: BotProfileConfig;
 }
 
-export function PlayerSeat({ player, isDealer, isActing, cardsVisible, profile }: PlayerSeatProps) {
+export function PlayerSeat({ player, isDealer, isActing, isHero, isThinking, cardsVisible, profile }: PlayerSeatProps) {
   const stats = profile ? PLACEHOLDER_STATS[profile.type] : null;
   const hasCards = player.holeCards.length === 2;
+  const cardSize = isHero ? 'lg' : 'sm';
 
   return (
-    <div className={`flex w-28 flex-col items-center gap-1 ${player.isFolded ? 'opacity-40' : ''}`}>
+    <div className={`flex ${isHero ? 'w-40' : 'w-28'} flex-col items-center gap-1 ${player.isFolded ? 'opacity-40' : ''}`}>
       <div className="flex gap-1">
-        <PlayingCard card={hasCards ? player.holeCards[0] : undefined} hidden={hasCards && !cardsVisible} small />
-        <PlayingCard card={hasCards ? player.holeCards[1] : undefined} hidden={hasCards && !cardsVisible} small />
+        <PlayingCard card={hasCards ? player.holeCards[0] : undefined} hidden={hasCards && !cardsVisible} size={cardSize} />
+        <PlayingCard card={hasCards ? player.holeCards[1] : undefined} hidden={hasCards && !cardsVisible} size={cardSize} />
       </div>
 
       <div
@@ -43,6 +46,14 @@ export function PlayerSeat({ player, isDealer, isActing, cardsVisible, profile }
         <div className="text-slate-300">{formatChips(player.stack)}</div>
         {player.currentStreetBet > 0 && <div className="mt-0.5 text-amber-300">bet {player.currentStreetBet}</div>}
         {player.isAllIn && <div className="mt-0.5 font-semibold text-rose-400">ALL-IN</div>}
+        {isThinking && (
+          <div className="mt-0.5 flex items-center justify-center gap-1 text-sky-300">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300 [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300 [animation-delay:300ms]" />
+            <span className="ml-1 text-[10px]">sta pensando</span>
+          </div>
+        )}
       </div>
 
       {stats && (

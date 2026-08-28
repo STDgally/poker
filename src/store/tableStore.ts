@@ -14,7 +14,17 @@ export const HERO_ID = 'hero';
 const STARTING_STACK = 1000;
 const SMALL_BLIND = 5;
 const BIG_BLIND = 10;
-const BOT_ACTION_DELAY_MS = 700;
+/** Bots "think" for a randomized delay before acting instead of responding
+ * instantly — folds are quick, bets/raises take noticeably longer, mimicking
+ * how a real opponent would pause more before a bigger decision. */
+function getBotThinkDelayMs(action: PlayerAction): number {
+  const base = 700 + Math.random() * 900;
+  if (action.type === PlayerActionType.FOLD) return base * 0.6;
+  if (action.type === PlayerActionType.BET || action.type === PlayerActionType.RAISE || action.type === PlayerActionType.ALL_IN) {
+    return base + 400 + Math.random() * 600;
+  }
+  return base;
+}
 
 const SEED_PLAYERS: SeedPlayer[] = [
   { id: HERO_ID, name: 'Tu', seat: 0, stack: STARTING_STACK, isBot: false },
@@ -295,15 +305,19 @@ export const useTableStore = create<TableStore>((set, get) => {
 
     syncState();
     set({ isBotActing: true });
+
+    // Decide the action now (so the "thinking" delay can depend on how
+    // aggressive it is) but only reveal/apply it after the delay elapses.
+    const profile = get().botProfiles[actor.id];
+    const legalActions = engine.getLegalActions(actor.id);
+    if (!legalActions) throw new Error(`${actor.id} has no legal action available right now`);
+    const action = decideBotAction({ state: engine.getState(), playerId: actor.id, legalActions, potSize: engine.getDisplayPot(), profile });
+
     setTimeout(() => {
-      const profile = get().botProfiles[actor.id];
-      const legalActions = engine.getLegalActions(actor.id);
-      if (!legalActions) throw new Error(`${actor.id} has no legal action available right now`);
-      const action = decideBotAction({ state: engine.getState(), playerId: actor.id, legalActions, potSize: engine.getDisplayPot(), profile });
       applyAndLog(actor.id, action);
       set({ isBotActing: false });
       advanceBots();
-    }, BOT_ACTION_DELAY_MS);
+    }, getBotThinkDelayMs(action));
   }
 
   return {

@@ -260,3 +260,23 @@ dal vero stato della mano (non placeholder):
 Verificato in browser con Playwright: cambio impostazioni (unità BB, colore tavolo) persistito e
 riflesso al tavolo, pannello info aperto durante una mano reale con equity/pot odds/range
 effettivamente calcolati, click sui preset di puntata e sui pulsanti azione senza errori console.
+
+### Carte più grandi, delay realistico sui bot, pannello info a schermo intero (Extra 2)
+
+- **Carte più grandi**: `PlayingCard` ora ha tre taglie (`sm`/`md`/`lg`); le carte dell'eroe sono
+  visibilmente più grandi (`lg`) di quelle — coperte — dei bot (`sm`), il board resta a taglia
+  media. Facile da ritoccare in `SIZE_CLASSES` in `PlayingCard.tsx`.
+- **Delay realistico sui bot** (`getBotThinkDelayMs` in `tableStore.ts`): niente più risposta
+  istantanea. Il ritardo è randomizzato e dipende dall'azione — un fold è rapido, una bet/raise
+  fa "pensare" più a lungo — con un indicatore visivo (puntini animati + "sta pensando") sul
+  seat del bot che sta decidendo.
+- **Pannello info ridisegnato**: non più un piccolo dropdown, ma una finestra fissa e grande
+  (`fixed left-6`, ~26rem) ancorata a **sinistra** dello schermo, mentre i controlli di puntata
+  restano a **destra** — così si possono leggere entrambi insieme. Ogni sezione (equity, mano
+  attuale via `pokersolver`, pot odds, outs con le carte elencate, range avversari) include ora
+  una spiegazione testuale di cosa significa il numero e come usarlo, non solo il valore nudo.
+
+Verificato in browser con Playwright: carte dell'eroe visibilmente più grandi di quelle dei bot,
+indicatore "sta pensando" visibile durante il turno di un bot, tempo reale fino al turno
+dell'eroe superiore a 1 secondo (prima era istantaneo), pannello info aperto a sinistra con tutte
+le sezioni popolate correttamente durante una mano reale, zero errori console.

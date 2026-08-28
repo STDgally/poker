@@ -3,15 +3,23 @@ import { Card } from '@/lib/game/types';
 const SUIT_SYMBOLS: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RED_SUITS = new Set(['h', 'd']);
 
+export type PlayingCardSize = 'sm' | 'md' | 'lg';
+
+const SIZE_CLASSES: Record<PlayingCardSize, string> = {
+  sm: 'w-10 h-14 text-sm',
+  md: 'w-14 h-20 text-lg',
+  lg: 'w-[4.5rem] h-[6.5rem] text-3xl',
+};
+
 interface PlayingCardProps {
   card?: Card;
   /** Face-down (opponent's hidden hole card), as opposed to an empty/not-yet-dealt slot. */
   hidden?: boolean;
-  small?: boolean;
+  size?: PlayingCardSize;
 }
 
-export function PlayingCard({ card, hidden = false, small = false }: PlayingCardProps) {
-  const sizeClasses = small ? 'w-8 h-11 text-xs' : 'w-12 h-16 text-base';
+export function PlayingCard({ card, hidden = false, size = 'md' }: PlayingCardProps) {
+  const sizeClasses = SIZE_CLASSES[size];
 
   if (!card && !hidden) {
     return <div className={`${sizeClasses} rounded-md border border-dashed border-slate-500/50`} />;
